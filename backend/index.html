@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Squat Coach</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  body { font-family: sans-serif; background: #111; color: #eee; display: flex; gap: 24px; padding: 24px; }
+  img { border-radius: 8px; }
+  .panel { min-width: 260px; }
+  .stat { font-size: 1.4rem; margin: 8px 0; }
+  .feedback { color: #4dd0e1; font-size: 1.1rem; margin-top: 12px; }
+  button { padding: 10px 16px; margin-top: 16px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <img src="http://localhost:5000/video_feed" width="640" height="480" />
+
+  <div class="panel">
+    <h2>Live Metrics</h2>
+    <div class="stat">Stage: <span id="stage">-</span></div>
+    <div class="stat">Total reps: <span id="total">0</span></div>
+    <div class="stat">Correct: <span id="correct">0</span></div>
+    <div class="stat">Incorrect: <span id="incorrect">0</span></div>
+    <div class="feedback" id="feedback">Waiting...</div>
+    <button onclick="saveSession()">Stop &amp; Save Session</button>
+    <pre id="summary"></pre>
+  </div>
+
+<script>
+  const socket = io("http://localhost:5000");
+
+  socket.on("metrics_update", (data) => {
+    document.getElementById("stage").innerText = data.stage;
+    document.getElementById("total").innerText = data.total_reps;
+    document.getElementById("correct").innerText = data.correct_reps;
+    document.getElementById("incorrect").innerText = data.incorrect_reps;
+    document.getElementById("feedback").innerText = data.feedback;
+  });
+
+  async function saveSession() {
+    const res = await fetch("http://localhost:5000/api/session/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: 1 })
+    });
+    const result = await res.json();
+    document.getElementById("summary").innerText = JSON.stringify(result.summary, null, 2);
+  }
+</script>
+</body>
+</html>

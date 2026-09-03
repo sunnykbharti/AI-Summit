@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+/* ============================================================
+   POSECARE — DESIGN SYSTEM (LIGHT CIVIC TECH)
+   Clean, professional, light aesthetic with blueprint accents
+============================================================ */
+
+:root {
+  /* Backgrounds */
+  --wy-bg-primary: #f8fafc;
+  --wy-bg-card: #ffffff;
+  --wy-bg-elevated: #f1f5f9;
+  --wy-bg-muted: #e2e8f0;
+
+  /* Text */
+  --wy-text-primary: #0f172a;
+  --wy-text-secondary: #334155;
+  --wy-text-muted: #64748b;
+  --wy-text-faint: #94a3b8;
+
+  /* Borders */
+  --wy-border: #e2e8f0;
+  --wy-border-strong: #cbd5e1;
+
+  /* Accents */
+  --wy-accent-cyan: #0891b2;
+  --wy-accent-cyan-light: #06b6d4;
+  --wy-accent-blue: #2563eb;
+  --wy-accent-purple: #7c3aed;
+  --wy-accent-amber: #d97706;
+  --wy-accent-green: #059669;
+
+  /* Blueprint grid */
+  --wy-grid-color: rgba(14, 116, 144, 0.06);
+  --wy-grid-size: 48px;
+}
+
+/* ---- Typography ---- */
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--wy-text-primary);
+  background: var(--wy-bg-primary);
+}
+
+.font-display {
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+/* ---- Blueprint Grid Background (Light) ---- */
+.wy-blueprint-grid {
+  background-color: var(--wy-bg-primary);
+  background-image:
+    linear-gradient(var(--wy-grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--wy-grid-color) 1px, transparent 1px);
+  background-size: var(--wy-grid-size) var(--wy-grid-size);
+  background-position: center center;
+}
+
+/* ---- Keyframe Animations ---- */
+
+/* Horizontal scan line */
+@keyframes wy-scan {
+  0% { transform: translateY(-100vh); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+.wy-scan-line {
+  animation: wy-scan 8s ease-in-out infinite;
+}
+
+/* Glow pulse (soft for light theme) */
+@keyframes wy-glow-pulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(8, 145, 178, 0.08), 0 4px 20px rgba(8, 145, 178, 0.04); }
+  50% { box-shadow: 0 0 25px rgba(8, 145, 178, 0.14), 0 4px 30px rgba(8, 145, 178, 0.08); }
+}
+
+.wy-glow-pulse {
+  animation: wy-glow-pulse 3s ease-in-out infinite;
+}
+
+/* Card entrance stagger */
+@keyframes wy-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.wy-card-enter {
+  animation: wy-card-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.wy-card-enter-1 { animation-delay: 0.1s; }
+.wy-card-enter-2 { animation-delay: 0.25s; }
+.wy-card-enter-3 { animation-delay: 0.4s; }
+
+/* Fade-in up */
+@keyframes wy-fade-up {
+  0% { opacity: 0; transform: translateY(30px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.wy-fade-up {
+  animation: wy-fade-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.wy-fade-up-1 { animation-delay: 0.05s; }
+.wy-fade-up-2 { animation-delay: 0.15s; }
+.wy-fade-up-3 { animation-delay: 0.3s; }
+
+/* Slow rotate for decorative rings */
+@keyframes wy-slow-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.wy-slow-spin {
+  animation: wy-slow-spin 40s linear infinite;
+}
+
+.wy-slow-spin-reverse {
+  animation: wy-slow-spin 30s linear infinite reverse;
+}
+
+/* Beacon ping for active indicator */
+@keyframes wy-beacon {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.wy-beacon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  animation: wy-beacon 2s ease-out infinite;
+}
+
+/* Float */
+@keyframes wy-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.wy-float {
+  animation: wy-float 5s ease-in-out infinite;
+}
+
+.wy-float-delayed {
+  animation: wy-float 5s ease-in-out 1.5s infinite;
+}
+
+/* Grid dot blink */
+@keyframes wy-blink {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.7; }
+}
+
+.wy-blink {
+  animation: wy-blink 2.5s ease-in-out infinite;
+}
+
+/* Scrollbar styling (light) */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

@@ -1,0 +1,32 @@
+# ============================================================
+# PoseCare Backend – Runtime Dependencies
+# ============================================================
+
+# --- Web Framework ---
+Flask
+Werkzeug
+
+# --- Flask Extensions ---
+Flask-SQLAlchemy     # ORM / DB
+Flask-CORS           # Cross-Origin Resource Sharing
+Flask-JWT-Extended    # JWT authentication
+Flask-Caching         # Cache
+
+# --- Database ---
+SQLAlchemy          # Core ORM
+
+# --- Background Worker & Task Queue ---
+celery              # Distributed task queue for email reports
+redis               # In-memory broker / result backend
+
+# --- Computer Vision & Pose Estimation ---
+opencv-python-headless   # cv2 – frame decode/encode (headless = no GUI)
+numpy                     # np arrays used by cv2 and analyzers
+ultralytics                 # YOLO pose model used in all analyzers
+
+# --- Security & Utilities ---
+PyJWT                # JWT token encoding
+python-dotenv         # os.getenv / .env file support
+
+# --- Production Server ---
+gunicorn            # WSGI server for deployment
