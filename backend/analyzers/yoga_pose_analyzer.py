@@ -11,16 +11,17 @@ LEFT_HIP, RIGHT_HIP = 11, 12
 LEFT_KNEE, RIGHT_KNEE = 13, 14
 LEFT_ANKLE, RIGHT_ANKLE = 15, 16
 
-KEYPOINT_CONFIDENCE_THRESHOLD = 0.25
+KEYPOINT_CONFIDENCE_THRESHOLD = 0.20
+GRACE_PERIOD_SECONDS = 1.5      # Prevents single-frame detection flicker from wiping out active hold
 SMOOTHING_WINDOW = 5
 
 POSES = {
-    "tree_pose": "Tree Pose",
-    "tadasana": "Tadasana (Mountain)",
-    "warrior_two": "Warrior II",
-    "triangle": "Triangle Pose",
-    "downward_dog": "Downward Dog",
-    "cobra": "Cobra Pose",
+    "tree_pose": "वृक्षासन (Tree Pose)",
+    "tadasana": "ताड़ासन (Mountain Pose)",
+    "warrior_two": "वीरभद्रासन II (Warrior II)",
+    "triangle": "त्रिकोणासन (Triangle Pose)",
+    "downward_dog": "अधोमुख श्वानासन (Downward Dog)",
+    "cobra": "भुजंगासन (Cobra Pose)",
 }
 
 
@@ -33,17 +34,18 @@ def calculate_angle(a, b, c):
 
 
 def distance(a, b):
-    return float(np.linalg.norm(np.array(a[:2]) - np.array(b[:2])))
+    return float(np.linalg.norm(np.array(a[:2], dtype=np.float32) - np.array(b[:2], dtype=np.float32)))
 
 
 def midpoint(a, b):
-    return (np.array(a[:2]) + np.array(b[:2])) / 2.0
+    return (np.array(a[:2], dtype=np.float32) + np.array(b[:2], dtype=np.float32)) / 2.0
 
 
 class YogaAnalyzer:
     """
-    Yoga Pose Analyzer class.
-    Detects balance, pose accuracy for various yoga postures, and tracks hold timers.
+    Human-Tolerant Yoga Pose Analyzer.
+    Provides scale-invariant geometric evaluations for 6 classical asanas,
+    a 1.5s grace period against webcam jitter, milestone rep tracking, and Hindi coaching cues.
     """
 
     def __init__(self, target_pose="tree_pose", model_path="yolo11n-pose.pt"):
@@ -54,20 +56,22 @@ class YogaAnalyzer:
 
         self.target_pose = target_pose if target_pose in POSES else "tree_pose"
         self.pose_hold_start = None
-        self.completed_holds = 0
+        self.last_good_time = None
         self.total_hold_time = 0.0
         self.current_hold_duration = 0.0
-        self.last_feedback = "शुरूआती पोज़ में आएं"
+        self.completed_holds = 0
+        self.last_milestone_logged = 0
         self.rep_log = []
 
     def process_frame(self, frame):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.model(frame_rgb, verbose=False)
-        output_rgb = results[0].plot()
+        output_rgb = results[0].plot(labels=False, conf=False)
         output_bgr = cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR)
 
         feedback = "कोई व्यक्ति नहीं दिखा"
         is_good = False
+        now = time.time()
         keypoint_data = results[0].keypoints.data
 
         if len(keypoint_data) > 0:
@@ -88,12 +92,18 @@ class YogaAnalyzer:
 
             is_good = feedback.startswith("GOOD")
 
-            # Hold timer tracking
+            # Hold timer tracking with 1.5-second grace buffer
             if is_good:
                 if self.pose_hold_start is None:
-                    self.pose_hold_start = time.time()
-                self.current_hold_duration = time.time() - self.pose_hold_start
-                if self.current_hold_duration >= 3.0 and not (len(self.rep_log) > 0 and self.rep_log[-1]["hold_time"] >= 3.0):
+                    self.pose_hold_start = now
+                    self.last_milestone_logged = 0
+                self.last_good_time = now
+                self.current_hold_duration = now - self.pose_hold_start
+
+                # Milestone rep every 5 seconds of continuous hold
+                current_milestone = int(self.current_hold_duration // 5.0)
+                if current_milestone > self.last_milestone_logged:
+                    self.last_milestone_logged = current_milestone
                     self.completed_holds += 1
                     self.rep_log.append({
                         "rep_number": self.completed_holds,
@@ -101,18 +111,42 @@ class YogaAnalyzer:
                         "errors": [],
                         "hold_time": round(float(self.current_hold_duration), 1),
                     })
+
                 feedback += f" | Hold: {self.current_hold_duration:.1f}s"
             else:
                 if self.pose_hold_start is not None:
-                    self.total_hold_time += self.current_hold_duration
-                    self.pose_hold_start = None
-                    self.current_hold_duration = 0.0
+                    time_since_good = now - (self.last_good_time or self.pose_hold_start)
+                    if time_since_good < GRACE_PERIOD_SECONDS:
+                        # Continue hold under grace period
+                        self.current_hold_duration = now - self.pose_hold_start
+                        feedback += f" | Hold: {self.current_hold_duration:.1f}s (सुधारें)"
+                    else:
+                        # Conclude hold
+                        final_duration = (self.last_good_time or now) - self.pose_hold_start
+                        if final_duration >= 3.0:
+                            self.total_hold_time += final_duration
+                            if self.last_milestone_logged == 0:
+                                self.completed_holds += 1
+                                self.rep_log.append({
+                                    "rep_number": self.completed_holds,
+                                    "correct": True,
+                                    "errors": [],
+                                    "hold_time": round(float(final_duration), 1),
+                                    "asana": self.target_pose,
+                                })
+                        self.pose_hold_start = None
+                        self.last_good_time = None
+                        self.current_hold_duration = 0.0
+                        self.last_milestone_logged = 0
+
+        accuracy = 100.0 if self.completed_holds > 0 else (85.0 if self.current_hold_duration >= 3.0 else 0.0)
 
         return output_bgr, {
             "stage": POSES.get(self.target_pose, "Yoga Pose"),
             "total_reps": self.completed_holds,
             "correct_reps": self.completed_holds,
             "incorrect_reps": 0,
+            "accuracy": accuracy,
             "hold_seconds": round(float(self.current_hold_duration), 1),
             "feedback": feedback,
         }
@@ -126,93 +160,139 @@ class YogaAnalyzer:
 
     def _check_tree(self, person):
         idx = [LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE]
-        if not self._reliable(person, idx, min_count=4):
+        if not self._reliable(person, idx, min_count=3):
             return "निचला शरीर स्पष्ट दिखाएं"
 
-        l_ank_y, r_ank_y = person[LEFT_ANKLE][1], person[RIGHT_ANKLE][1]
-        lifted_left = l_ank_y < r_ank_y - 20
-        lifted_right = r_ank_y < l_ank_y - 20
+        l_hip, r_hip = person[LEFT_HIP], person[RIGHT_HIP]
+        l_knee, r_knee = person[LEFT_KNEE], person[RIGHT_KNEE]
+        l_ank, r_ank = person[LEFT_ANKLE], person[RIGHT_ANKLE]
 
-        if not lifted_left and not lifted_right:
-            return "एक पैर उठाकर टखने पर रखें"
+        # Calculate leg angles
+        l_angle = calculate_angle(l_hip[:2], l_knee[:2], l_ank[:2]) if l_ank[2] > 0.15 else 180.0
+        r_angle = calculate_angle(r_hip[:2], r_knee[:2], r_ank[:2]) if r_ank[2] > 0.15 else 180.0
 
-        return "GOOD: वृक्षासन संतुलन अच्छा है"
+        # Ankle height difference normalized by hip width
+        hip_w = distance(l_hip, r_hip) + 1e-5
+        ankle_diff = abs(l_ank[1] - r_ank[1])
+
+        # Tree pose criteria:
+        # One leg is straight (angle > 140°), other is bent (angle < 155° or ankle significantly lifted)
+        left_lifted = (l_angle < 155.0 or (l_ank[2] > 0.15 and r_ank[2] > 0.15 and l_ank[1] < r_ank[1] - hip_w * 0.35))
+        right_lifted = (r_angle < 155.0 or (l_ank[2] > 0.15 and r_ank[2] > 0.15 and r_ank[1] < l_ank[1] - hip_w * 0.35))
+
+        if left_lifted or right_lifted:
+            return "GOOD: वृक्षासन - संतुलन बहुत अच्छा है!"
+        return "एक पैर को मोड़कर दूसरी जांघ या पिंडली पर रखें"
 
     def _check_tadasana(self, person):
         idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP, LEFT_ANKLE, RIGHT_ANKLE]
-        if not self._reliable(person, idx, min_count=4):
+        if not self._reliable(person, idx, min_count=3):
             return "सीधे खड़े होकर पूरा शरीर दिखाएं"
 
-        sh_width = distance(person[LEFT_SHOULDER], person[RIGHT_SHOULDER])
-        ank_width = distance(person[LEFT_ANKLE], person[RIGHT_ANKLE])
+        sh_w = distance(person[LEFT_SHOULDER], person[RIGHT_SHOULDER]) + 1e-5
+        ank_w = distance(person[LEFT_ANKLE], person[RIGHT_ANKLE])
 
-        if ank_width > sh_width * 1.8:
-            return "पैरों को पास लाएं"
+        # Generous feet width allowance for normal human stance (up to 2.5x shoulder width)
+        if ank_w > sh_w * 2.6:
+            return "पैरों को थोड़ा पास लाएं"
 
-        return "GOOD: ताड़ासन सही है"
+        # Check vertical torso angle
+        sh_c = midpoint(person[LEFT_SHOULDER], person[RIGHT_SHOULDER])
+        hip_c = midpoint(person[LEFT_HIP], person[RIGHT_HIP])
+        dx = abs(sh_c[0] - hip_c[0])
+        dy = abs(sh_c[1] - hip_c[1]) + 1e-5
+        lean_deg = float(np.degrees(np.arctan2(dx, dy)))
+
+        if lean_deg > 25.0:
+            return "रीढ़ सीधी रखें और सीधे खड़े हों"
+
+        return "GOOD: ताड़ासन - स्थिरता और रीढ़ सीधी है!"
 
     def _check_warrior_two(self, person):
-        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_WRIST, RIGHT_WRIST, LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE]
-        if not self._reliable(person, idx, min_count=6):
-            return "बाहें फैलाएं और पैर चौड़ा करें"
+        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE]
+        if not self._reliable(person, idx, min_count=4):
+            return "वीरभद्रासन में मैट पर साइड पोज़ दिखाएं"
 
-        l_knee_angle = calculate_angle(person[LEFT_HIP][:2], person[LEFT_KNEE][:2], person[LEFT_ANKLE][:2])
-        r_knee_angle = calculate_angle(person[RIGHT_HIP][:2], person[RIGHT_KNEE][:2], person[RIGHT_ANKLE][:2])
+        l_knee_angle = calculate_angle(person[LEFT_HIP][:2], person[LEFT_KNEE][:2], person[LEFT_ANKLE][:2]) if person[LEFT_ANKLE][2] > 0.15 else 130.0
+        r_knee_angle = calculate_angle(person[RIGHT_HIP][:2], person[RIGHT_KNEE][:2], person[RIGHT_ANKLE][:2]) if person[RIGHT_ANKLE][2] > 0.15 else 130.0
 
+        sh_w = distance(person[LEFT_SHOULDER], person[RIGHT_SHOULDER]) + 1e-5
         hands_w = distance(person[LEFT_WRIST], person[RIGHT_WRIST])
-        sh_w = distance(person[LEFT_SHOULDER], person[RIGHT_SHOULDER])
 
-        if hands_w < sh_w * 1.6:
-            return "दोनों बाहें ज़मीन के समानतर फैलाएं"
-        if min(l_knee_angle, r_knee_angle) > 140:
-            return "सामने वाला घुटना मोड़ें"
+        # Arm spread: hands wider than shoulders (ratio 1.25 instead of 1.6 strict)
+        arms_spread = hands_w >= sh_w * 1.20 if (person[LEFT_WRIST][2] > 0.15 and person[RIGHT_WRIST][2] > 0.15) else True
 
-        return "GOOD: वीरभद्रासन सही है"
+        # Front knee bend (relaxed to 150° for beginner comfort)
+        min_knee = min(l_knee_angle, r_knee_angle)
+        if min_knee > 150.0:
+            return "सामने वाले घुटने को थोड़ा मोड़ें"
+
+        if not arms_spread:
+            return "दोनों बाहें ज़मीन के समानांतर फैलाएं"
+
+        return "GOOD: वीरभद्रासन II - शानदार शक्ति और संतुलन!"
 
     def _check_triangle(self, person):
-        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE]
-        if not self._reliable(person, idx, min_count=5):
+        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE]
+        if not self._reliable(person, idx, min_count=4):
             return "त्रिकोणासन में पूरा शरीर दिखाएं"
 
-        l_leg = calculate_angle(person[LEFT_HIP][:2], person[LEFT_KNEE][:2], person[LEFT_ANKLE][:2])
-        r_leg = calculate_angle(person[RIGHT_HIP][:2], person[RIGHT_KNEE][:2], person[RIGHT_ANKLE][:2])
+        l_leg = calculate_angle(person[LEFT_HIP][:2], person[LEFT_KNEE][:2], person[LEFT_ANKLE][:2]) if person[LEFT_ANKLE][2] > 0.15 else 160.0
+        r_leg = calculate_angle(person[RIGHT_HIP][:2], person[RIGHT_KNEE][:2], person[RIGHT_ANKLE][:2]) if person[RIGHT_ANKLE][2] > 0.15 else 160.0
 
-        if min(l_leg, r_leg) < 140:
-            return "दोनों पैर सीधे और फैले हुए रखें"
+        # Allow soft knees (down to 125° to prevent joint hyperextension)
+        if min(l_leg, r_leg) < 125.0:
+            return "दोनों पैरों को सीधा और स्थिर रखें"
 
-        return "GOOD: त्रिकोणासन सही है"
+        # Check lateral tilt of shoulders
+        sh_tilt = abs(person[LEFT_SHOULDER][1] - person[RIGHT_SHOULDER][1])
+        sh_w = distance(person[LEFT_SHOULDER], person[RIGHT_SHOULDER]) + 1e-5
+
+        if sh_tilt < sh_w * 0.20:
+            return "धड़ को एक तरफ झुकाएं (पार्श्व झुकाव)"
+
+        return "GOOD: त्रिकोणासन - पार्श्व खिंचाव बहुत अच्छा है!"
 
     def _check_downward_dog(self, person):
-        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP, LEFT_ANKLE, RIGHT_ANKLE]
-        if not self._reliable(person, idx, min_count=4):
-            return "कंधे, कूल्हे और टखने दिखाएं"
+        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP]
+        if not self._reliable(person, idx, min_count=3):
+            return "कंधे, कूल्हे और पैर कैमरे में दिखाएं"
 
         sh_c = midpoint(person[LEFT_SHOULDER], person[RIGHT_SHOULDER])
         hip_c = midpoint(person[LEFT_HIP], person[RIGHT_HIP])
 
-        if hip_c[1] >= sh_c[1]:
-            return "कूल्हे ऊपर उठाकर उल्टा V बनाएं"
+        # In Downward Dog (inverted V), hips MUST be noticeably higher than shoulders (lower y value in image)
+        torso_dist = abs(sh_c[0] - hip_c[0]) + abs(sh_c[1] - hip_c[1]) + 1e-5
+        if hip_c[1] >= sh_c[1] - torso_dist * 0.08:
+            return "कूल्हे ऊपर उठाकर शरीर का उल्टा V (पर्वत) आकार बनाएं"
 
-        return "GOOD: अधोमुख श्वानासन सही है"
+        return "GOOD: अधोमुख श्वानासन - उल्टा V आकार सही है!"
 
     def _check_cobra(self, person):
-        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP, LEFT_ELBOW, RIGHT_ELBOW]
-        if not self._reliable(person, idx, min_count=4):
-            return "मैट पर ऊपरी शरीर दिखाएं"
+        idx = [LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP]
+        if not self._reliable(person, idx, min_count=3):
+            return "मैट पर लेटकर ऊपरी शरीर दिखाएं"
 
         sh_c = midpoint(person[LEFT_SHOULDER], person[RIGHT_SHOULDER])
         hip_c = midpoint(person[LEFT_HIP], person[RIGHT_HIP])
 
-        if abs(hip_c[1] - sh_c[1]) < 25:
-            return "छाती धीरे से ऊपर उठाएं"
+        sh_w = distance(person[LEFT_SHOULDER], person[RIGHT_SHOULDER]) + 1e-5
+        # Chest should be lifted: shoulders higher than hips by at least 15% of shoulder width
+        lift = hip_c[1] - sh_c[1]
 
-        return "GOOD: भुजंगासन सही है"
+        if lift < sh_w * 0.15:
+            return "छाती को हथेलियों के सहारे धीरे से ऊपर उठाएं"
+
+        return "GOOD: भुजंगासन - छाती का खिंचाव बहुत अच्छा है!"
 
     def session_summary(self):
+        total_time = self.total_hold_time + self.current_hold_duration
+        accuracy = 100.0 if self.completed_holds > 0 else (85.0 if total_time >= 3.0 else 0.0)
         return {
             "total_reps": self.completed_holds,
             "correct_reps": self.completed_holds,
             "incorrect_reps": 0,
-            "accuracy": 100.0 if self.completed_holds > 0 else 0.0,
+            "accuracy": accuracy,
+            "total_hold_time": round(float(total_time), 1),
             "rep_log": self.rep_log,
         }

@@ -60,7 +60,7 @@ class SquatAnalyzer:
     def process_frame(self, frame):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.model(frame_rgb, verbose=False)
-        output_rgb = results[0].plot()
+        output_rgb = results[0].plot(labels=False, conf=False)
         output_bgr = cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR)
 
         feedback = "कोई व्यक्ति नहीं दिखा"

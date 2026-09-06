@@ -7,19 +7,26 @@ NOSE = 0
 LEFT_SHOULDER, RIGHT_SHOULDER = 5, 6
 LEFT_HIP, RIGHT_HIP = 11, 12
 
-KEYPOINT_CONFIDENCE_THRESHOLD = 0.25
-MAX_TORSO_LEAN_DEGREES = 15.0
-MAX_SHOULDER_TILT = 25.0
+KEYPOINT_CONFIDENCE_THRESHOLD = 0.20
+MAX_TORSO_LEAN_DEGREES = 20.0       # Relaxed from 15.0 to accommodate natural comfortable posture
+MAX_SHOULDER_TILT_RATIO = 0.22      # Normalized to shoulder width instead of raw 25px
+MAX_HEAD_FORWARD_RATIO = 0.38       # Normalized to shoulder width instead of raw 55px
+SMOOTHING_WINDOW = 5
 
 
 def midpoint(a, b):
-    return (np.array(a[:2]) + np.array(b[:2])) / 2.0
+    return (np.array(a[:2], dtype=np.float32) + np.array(b[:2], dtype=np.float32)) / 2.0
+
+
+def distance(a, b):
+    return float(np.linalg.norm(np.array(a[:2], dtype=np.float32) - np.array(b[:2], dtype=np.float32)))
 
 
 class PostureAnalyzer:
     """
     General Posture Analyzer.
-    Evaluates sitting/standing posture, detects slouching, shoulder imbalance, and head-forward drift.
+    Evaluates sitting/standing posture, detects slouching, shoulder tilt, and head-forward drift
+    with scale-normalized biomechanics and frame-to-frame stability smoothing.
     """
 
     def __init__(self, model_path="yolo11n-pose.pt"):
@@ -28,6 +35,7 @@ class PostureAnalyzer:
         except Exception:
             self.model = YOLO("yolov8n-pose.pt")
 
+        self.lean_history = deque(maxlen=SMOOTHING_WINDOW)
         self.good_frames = 0
         self.bad_frames = 0
         self.rep_log = []
@@ -35,7 +43,7 @@ class PostureAnalyzer:
     def process_frame(self, frame):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.model(frame_rgb, verbose=False)
-        output_rgb = results[0].plot()
+        output_rgb = results[0].plot(labels=False, conf=False)
         output_bgr = cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR)
 
         feedback = "कोई व्यक्ति नहीं दिखा"
@@ -53,37 +61,42 @@ class PostureAnalyzer:
             reliable = sum(c > KEYPOINT_CONFIDENCE_THRESHOLD for c in confs) >= 2
 
             if reliable:
+                sh_w = distance(l_sh, r_sh) + 1e-5
                 sh_c = midpoint(l_sh, r_sh)
-                hip_c = midpoint(l_hip, r_hip) if (l_hip[2] > 0.2 and r_hip[2] > 0.2) else sh_c + np.array([0, 150])
+                hip_c = midpoint(l_hip, r_hip) if (l_hip[2] > 0.15 and r_hip[2] > 0.15) else sh_c + np.array([0, sh_w * 1.5])
 
                 # Vertical torso angle
                 dx = abs(sh_c[0] - hip_c[0])
-                dy = abs(sh_c[1] - hip_c[1]) + 1e-8
-                lean_deg = float(np.degrees(np.arctan2(dx, dy)))
+                dy = abs(sh_c[1] - hip_c[1]) + 1e-5
+                raw_lean = float(np.degrees(np.arctan2(dx, dy)))
+                self.lean_history.append(raw_lean)
+                lean_deg = float(np.mean(self.lean_history))
 
-                # Shoulder imbalance
-                shoulder_tilt = abs(l_sh[1] - r_sh[1])
+                # Scale-normalized shoulder imbalance
+                shoulder_tilt_ratio = abs(l_sh[1] - r_sh[1]) / sh_w
 
-                # Head forward ratio relative to shoulders
-                head_forward = nose[0] - sh_c[0]
+                # Scale-normalized head forward ratio
+                head_forward_ratio = abs(nose[0] - sh_c[0]) / sh_w
 
                 issues = []
                 if lean_deg > MAX_TORSO_LEAN_DEGREES:
-                    issues.append("झुकाव / धड़ झुक रहा है")
-                    score -= 30
-                if shoulder_tilt > MAX_SHOULDER_TILT:
-                    issues.append("कंधे असमान हैं")
+                    issues.append("धड़ का झुकाव")
                     score -= 20
-                if abs(head_forward) > 55:
-                    issues.append("सिर आगे झुका हुआ है")
-                    score -= 25
+                if shoulder_tilt_ratio > MAX_SHOULDER_TILT_RATIO:
+                    issues.append("कंधे थोड़े असमान हैं")
+                    score -= 15
+                if head_forward_ratio > MAX_HEAD_FORWARD_RATIO:
+                    issues.append("गर्दन आगे की ओर झुकी है")
+                    score -= 15
 
-                if not issues:
+                score = max(50, score)
+
+                if len(issues) <= 1 and score >= 80:
                     self.good_frames += 1
-                    feedback = f"GOOD: बहुत अच्छी मुद्रा (Score: {score}/100)"
+                    feedback = f"GOOD: संतुलित मुद्रा (Score: {score}/100)"
                 else:
                     self.bad_frames += 1
-                    feedback = "मुद्रा में समस्या: " + ", ".join(issues)
+                    feedback = "मुद्रा में सुधार करें: " + ", ".join(issues)
             else:
                 feedback = "कैमरे के सामने सीधे बैठें या खड़े हों"
 
