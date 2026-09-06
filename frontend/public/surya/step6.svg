@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 290" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg-grad-6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="60%" stop-color="#f0f9ff" />
+      <stop offset="100%" stop-color="#e0f2fe" />
+    </linearGradient>
+    <filter id="shadow-6" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0284c7" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- Card Background -->
+  <rect width="400" height="290" rx="24" fill="url(#bg-grad-6)" stroke="#bae6fd" stroke-width="1.5"/>
+
+  <!-- Subtle Sun Aura Pattern -->
+  <circle cx="200" cy="140" r="110" fill="#38bdf8" opacity="0.05" />
+  <circle cx="200" cy="140" r="75" fill="#0284c7" opacity="0.04" />
+
+  <!-- Top Badge: Step Number & Breath -->
+  <g transform="translate(16, 16)">
+    <rect width="90" height="26" rx="8" fill="#0284c7" />
+    <text x="45" y="17" fill="#ffffff" font-size="11" font-weight="bold" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      STEP 6 / 12
+    </text>
+  </g>
+
+  <g transform="translate(250, 16)">
+    <rect width="134" height="26" rx="8" fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>
+    <text x="67" y="17" fill="#0369a1" font-size="10.5" font-weight="bold" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      सांस: बाहर छोड़ें (Exhale)
+    </text>
+  </g>
+
+  <!-- Dynamic Pose Figure -->
+  <g filter="url(#shadow-6)">
+    
+            <!-- Mat -->
+            <rect x="40" y="240" width="320" height="8" rx="4" fill="#cbd5e1"/>
+            <!-- Feet (1, 2) -->
+            <ellipse cx="310" cy="238" rx="7" ry="4" fill="#0284c7"/>
+            <!-- Knees on mat (3, 4) -->
+            <ellipse cx="230" cy="238" rx="8" ry="5" fill="#0284c7"/>
+            <line x1="310" y1="236" x2="230" y2="236" stroke="#0284c7" stroke-width="10" stroke-linecap="round"/>
+            <!-- Hips elevated off mat -->
+            <path d="M 230 236 L 205 190 L 165 230" stroke="#0284c7" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <!-- Palms on ground (5, 6) -->
+            <ellipse cx="150" cy="238" rx="8" ry="4" fill="#0369a1"/>
+            <line x1="165" y1="210" x2="150" y2="238" stroke="#0369a1" stroke-width="8" stroke-linecap="round"/>
+            <!-- Chest on mat (7) -->
+            <circle cx="138" cy="236" r="6" fill="#38bdf8"/>
+            <!-- Chin on mat (8) & Head -->
+            <circle cx="108" cy="225" r="14" fill="#0284c7"/>
+            <ellipse cx="118" cy="238" rx="6" ry="3" fill="#38bdf8"/>
+            <!-- 8 contact point callouts -->
+            <circle cx="310" cy="238" r="4" fill="#f59e0b"/>
+            <circle cx="230" cy="238" r="4" fill="#f59e0b"/>
+            <circle cx="150" cy="238" r="4" fill="#f59e0b"/>
+            <circle cx="138" cy="238" r="4" fill="#f59e0b"/>
+            <circle cx="118" cy="238" r="4" fill="#f59e0b"/>
+            <!-- Elevated hips badge -->
+            <path d="M 205 175 L 205 160" stroke="#10b981" stroke-width="2" stroke-linecap="round"/>
+            <polygon points="205,155 201,162 209,162" fill="#10b981"/>
+        
+  </g>
+
+  <!-- Bottom Banner: Hindi & English Name -->
+  <g transform="translate(16, 252)">
+    <text x="184" y="12" fill="#0f172a" font-size="14" font-weight="900" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      अष्टांग नमस्कार • Ashtanga Namaskara
+    </text>
+    <text x="184" y="26" fill="#0369a1" font-size="10.5" font-weight="600" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      8 अंग जमीन पर: दो पैर, दो घुटने, दो हथेलियां, छाती और ठुड्डी।
+    </text>
+  </g>
+</svg>

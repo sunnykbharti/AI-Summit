@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 290" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg-grad-10" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="60%" stop-color="#f0f9ff" />
+      <stop offset="100%" stop-color="#e0f2fe" />
+    </linearGradient>
+    <filter id="shadow-10" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0284c7" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- Card Background -->
+  <rect width="400" height="290" rx="24" fill="url(#bg-grad-10)" stroke="#bae6fd" stroke-width="1.5"/>
+
+  <!-- Subtle Sun Aura Pattern -->
+  <circle cx="200" cy="140" r="110" fill="#38bdf8" opacity="0.05" />
+  <circle cx="200" cy="140" r="75" fill="#0284c7" opacity="0.04" />
+
+  <!-- Top Badge: Step Number & Breath -->
+  <g transform="translate(16, 16)">
+    <rect width="90" height="26" rx="8" fill="#0284c7" />
+    <text x="45" y="17" fill="#ffffff" font-size="11" font-weight="bold" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      STEP 10 / 12
+    </text>
+  </g>
+
+  <g transform="translate(250, 16)">
+    <rect width="134" height="26" rx="8" fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>
+    <text x="67" y="17" fill="#0369a1" font-size="10.5" font-weight="bold" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      सांस: बाहर छोड़ें (Exhale)
+    </text>
+  </g>
+
+  <!-- Dynamic Pose Figure -->
+  <g filter="url(#shadow-10)">
+    
+            <!-- Mat -->
+            <rect x="60" y="240" width="280" height="8" rx="4" fill="#cbd5e1"/>
+            <!-- Legs standing straight -->
+            <line x1="225" y1="140" x2="225" y2="238" stroke="#0284c7" stroke-width="12" stroke-linecap="round"/>
+            <circle cx="225" cy="140" r="10" fill="#0369a1"/>
+            <!-- Deep fold -->
+            <path d="M 225 140 L 205 185 L 195 215" stroke="#0284c7" stroke-width="13" stroke-linecap="round" fill="none"/>
+            <circle cx="192" cy="225" r="15" fill="#0284c7"/>
+            <path d="M 205 180 L 205 238" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" fill="none"/>
+            <ellipse cx="205" cy="240" rx="6" ry="3" fill="#38bdf8"/>
+            <ellipse cx="226" cy="240" rx="9" ry="4" fill="#0369a1"/>
+            <!-- Pulse ring -->
+            <circle cx="192" cy="225" r="18" fill="#06b6d4" opacity="0.2"/>
+        
+  </g>
+
+  <!-- Bottom Banner: Hindi & English Name -->
+  <g transform="translate(16, 252)">
+    <text x="184" y="12" fill="#0f172a" font-size="14" font-weight="900" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      पादहस्तासन • Padahastasana
+    </text>
+    <text x="184" y="26" fill="#0369a1" font-size="10.5" font-weight="600" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      दोनों पैर पास लाएं, सांस छोड़ते हुए आगे झुकें और माथा घुटनों के पास लाएं।
+    </text>
+  </g>
+</svg>

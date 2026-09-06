@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 290" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg-grad-9" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="60%" stop-color="#f0f9ff" />
+      <stop offset="100%" stop-color="#e0f2fe" />
+    </linearGradient>
+    <filter id="shadow-9" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0284c7" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- Card Background -->
+  <rect width="400" height="290" rx="24" fill="url(#bg-grad-9)" stroke="#bae6fd" stroke-width="1.5"/>
+
+  <!-- Subtle Sun Aura Pattern -->
+  <circle cx="200" cy="140" r="110" fill="#38bdf8" opacity="0.05" />
+  <circle cx="200" cy="140" r="75" fill="#0284c7" opacity="0.04" />
+
+  <!-- Top Badge: Step Number & Breath -->
+  <g transform="translate(16, 16)">
+    <rect width="90" height="26" rx="8" fill="#0284c7" />
+    <text x="45" y="17" fill="#ffffff" font-size="11" font-weight="bold" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      STEP 9 / 12
+    </text>
+  </g>
+
+  <g transform="translate(250, 16)">
+    <rect width="134" height="26" rx="8" fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>
+    <text x="67" y="17" fill="#0369a1" font-size="10.5" font-weight="bold" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      सांस: अंदर लें (Inhale)
+    </text>
+  </g>
+
+  <!-- Dynamic Pose Figure -->
+  <g filter="url(#shadow-9)">
+    
+            <!-- Mat -->
+            <rect x="40" y="240" width="320" height="8" rx="4" fill="#cbd5e1"/>
+            <!-- Back right leg extended -->
+            <path d="M 215 185 Q 260 205, 310 238" stroke="#0369a1" stroke-width="11" stroke-linecap="round" fill="none"/>
+            <ellipse cx="312" cy="240" rx="8" ry="4" fill="#0369a1"/>
+            <!-- Front left leg 90 degrees -->
+            <path d="M 215 185 L 160 185 L 160 238" stroke="#0284c7" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <ellipse cx="160" cy="240" rx="10" ry="4" fill="#0284c7"/>
+            <!-- Torso & Chest lifted -->
+            <path d="M 215 185 C 210 155, 202 135, 200 115" stroke="#0284c7" stroke-width="13" stroke-linecap="round" fill="none"/>
+            <circle cx="200" cy="95" r="15" fill="#0284c7"/>
+            <!-- Hands framing front foot -->
+            <path d="M 204 135 L 180 190 L 175 238" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" fill="none"/>
+            <ellipse cx="175" cy="240" rx="6" ry="3" fill="#38bdf8"/>
+            <!-- Gaze arrow -->
+            <path d="M 190 85 L 150 65" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="3 3"/>
+            <polygon points="145,62 153,68 155,60" fill="#f59e0b"/>
+        
+  </g>
+
+  <!-- Bottom Banner: Hindi & English Name -->
+  <g transform="translate(16, 252)">
+    <text x="184" y="12" fill="#0f172a" font-size="14" font-weight="900" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      अश्व संचालनासन • Ashwa Sanchalanasana
+    </text>
+    <text x="184" y="26" fill="#0369a1" font-size="10.5" font-weight="600" font-family="system-ui, -apple-system, sans-serif" text-anchor="middle">
+      बायां पैर आगे लाएं, दायां पैर पीछे सीधा रखें, दृष्टि सामने की ओर।
+    </text>
+  </g>
+</svg>
