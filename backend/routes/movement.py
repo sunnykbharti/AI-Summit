@@ -14,8 +14,8 @@ from analyzers.lunge_analyzer import LungeAnalyzer
 from analyzers.plank_analyzer import PlankAnalyzer
 from analyzers.posture_analyzer import PostureAnalyzer
 from analyzers.desk_posture_analyzer import DeskPostureAnalyzer
-from analyzers.expression_analyzer import FacialExpressionAnalyzer
-from analyzers.reaction_analyzer import ReactionAnalyzer
+from reaction.expression_analyzer import FacialExpressionAnalyzer
+from reaction.reaction_analyzer import ReactionAnalyzer
 from ai_summarizer import ai_summarizer
 
 from analyzers.bodymap import BodyMapCalibrator, draw_calibration_hud, BodyMode, BodyMap
@@ -128,8 +128,8 @@ def calibrate_frame():
     body_map = _calibrator.build()
     detected_groups = [g["name"] for g in body_map.group_status if g["tracked"]]
 
-    # Annotate frame with skeleton and frosted-glass HUD
-    annotated_rgb = results[0].plot()
+    # Annotate frame with skeleton and frosted-glass HUD (hide labels and confidence)
+    annotated_rgb = results[0].plot(labels=False, conf=False)
     annotated_bgr = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
     annotated_with_hud = draw_calibration_hud(annotated_bgr, progress, detected_groups)
 
@@ -396,11 +396,19 @@ def stop_exercise():
         db.session.rollback()
         print(f"Session save warning: {e}")
 
+    reaction_dominant = (
+        summary.get("dominant_mood")
+        or (expression_summary and expression_summary.get("dominant_mood"))
+        or "Focused"
+    )
+
     return jsonify({
         "exercise": exercise_name,
         "duration": data.get("duration", 0),
-        "reps": summary["total_reps"],
-        "accuracy": summary["accuracy"],
+        "reps": 0 if exercise_name == "reaction" else summary.get("total_reps", 0),
+        "reaction": reaction_dominant.capitalize(),
+        "dominant_mood": reaction_dominant.capitalize(),
+        "accuracy": summary.get("accuracy", 85.0),
         "feedback": ai_summary_text,
         "ai_report": ai_report,
         "session_id": session_id,
