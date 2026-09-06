@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import api from "../api/Api";
 import {
   Trophy,
   Medal,
@@ -95,11 +95,7 @@ const Leaderboard = () => {
 
   const fetchLeaderboard = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_URL || "http://127.0.0.1:5000"}/leaderboard?period=${period}`,
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 2500 }
-      );
+      const res = await api.get(`/pose/leaderboard?period=${period}`);
       if (res.data?.leaderboard?.length) {
         setLeaderboard(res.data.leaderboard);
       }

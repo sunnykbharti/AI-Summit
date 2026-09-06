@@ -1,8 +1,21 @@
 import axios from "axios";
 
+const resolveApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    const raw = import.meta.env.VITE_API_URL.replace(/\/$/, "");
+    return raw.endsWith("/api") ? raw : `${raw}/api`;
+  }
+  // In browser, relative '/api' works with Vite's proxy in dev mode
+  // and with Flask static serving in production, seamlessly across local network/WiFi.
+  if (typeof window !== "undefined") {
+    return "/api";
+  }
+  return "http://127.0.0.1:5000/api";
+};
+
 const api = axios.create({
-  baseURL: "http://127.0.0.1:5000/api",
-  timeout: 2500,
+  baseURL: resolveApiBaseUrl(),
+  timeout: 10000,
 });
 
 api.interceptors.request.use((config) => {

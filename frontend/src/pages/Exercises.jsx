@@ -34,6 +34,22 @@ const exercises = [
     tags: ["Ergonomics", "Study", "Interview", "Text Neck"],
   },
   {
+    id: 100,
+    name: "Facial Reaction & Emotion Analysis",
+    category: "Reaction & Emotion",
+    difficulty: "All Levels",
+    duration: "Continuous",
+    calories: "Mind & Focus",
+    description:
+      "Real-time AI recognition of facial micro-expressions, physical tension, engagement levels, and fatigue.",
+    image:
+      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=900&q=80",
+    video:
+      "https://www.youtube.com/watch?v=RqcOCb4IAL8",
+    tags: ["Facial AI", "Emotion", "Reaction", "Fatigue"],
+    link: "/reaction-analysis",
+  },
+  {
     id: 1,
     name: "Squats",
     category: "Strength",
@@ -664,11 +680,11 @@ const ExerciseModal = ({ exercise, onClose }) => {
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             <button
-              onClick={() => navigate("/pose-analysis")}
+              onClick={() => navigate(exercise.link || "/pose-analysis")}
               className="flex items-center justify-center gap-3 rounded-2xl bg-cyan-600 py-4 font-bold text-white shadow-xl shadow-cyan-200/30 transition hover:-translate-y-1 hover:bg-cyan-500"
             >
               <Sparkles size={19} />
-              Start AI Pose Analysis
+              {exercise.link ? "Analyse Reaction" : "Start AI Pose Analysis"}
             </button>
 
             <a

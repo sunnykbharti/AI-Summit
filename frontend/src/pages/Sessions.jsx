@@ -20,6 +20,10 @@ import {
   XCircle,
   Zap,
   Award,
+  Brain,
+  ShieldCheck,
+  Sparkles,
+  Lightbulb,
 } from "lucide-react";
 
 import api from "../api/Api";
@@ -616,15 +620,104 @@ const Sessions = () => {
             </div>
 
             {/* AI Summary / Feedback */}
-            <div className="rounded-2xl border border-cyan-100 bg-cyan-50/50 p-4 mb-6">
-              <div className="flex items-center gap-2 text-cyan-800 font-bold text-xs mb-1.5">
-                <Award size={16} />
-                <span>AI Performance Analysis</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {selectedSession.ai_summary || selectedSession.feedback || `Great session! Completed ${selectedSession.repetitions} repetitions with an average form accuracy of ${selectedSession.score}%.`}
-              </p>
-            </div>
+            {(() => {
+              let report = selectedSession.ai_report;
+              if (!report && selectedSession.ai_summary && typeof selectedSession.ai_summary === "string" && selectedSession.ai_summary.trim().startsWith("{")) {
+                try {
+                  report = JSON.parse(selectedSession.ai_summary);
+                } catch {
+                  report = null;
+                }
+              }
+
+              if (report && typeof report === "object") {
+                return (
+                  <div className="space-y-3.5 mb-6 text-left">
+                    {/* Grade & Diagnostic Headline */}
+                    <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-cyan-950/80 to-slate-900 p-4 text-white shadow-lg flex items-center gap-3.5">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 text-white font-black text-xl shadow-md ring-2 ring-cyan-400/30">
+                        {report.form_grade || (selectedSession.score >= 80 ? "A" : selectedSession.score >= 60 ? "B" : "C")}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-300 flex items-center gap-1">
+                          <Sparkles size={11} /> {report.score_text || "AI Diagnostic"}
+                        </span>
+                        <h4 className="font-bold text-sm text-white truncate mt-0.5">
+                          {report.headline || "Biomechanical Performance"}
+                        </h4>
+                      </div>
+                    </div>
+
+                    {/* Overview */}
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3.5">
+                      <p className="text-[11px] font-bold text-slate-900 flex items-center gap-1 mb-1">
+                        <Brain size={13} className="text-cyan-600" /> AI Kinematic Synthesis
+                      </p>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {report.overview}
+                      </p>
+                    </div>
+
+                    {/* Strengths & Improvements */}
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      {report.key_strengths && report.key_strengths.length > 0 && (
+                        <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/60 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-emerald-800 flex items-center gap-1 mb-1.5">
+                            <CheckCircle2 size={12} className="text-emerald-600" /> Kinetic Strengths
+                          </p>
+                          <ul className="space-y-1 text-xs text-slate-700">
+                            {report.key_strengths.map((str, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <span className="text-emerald-600 font-bold">•</span>
+                                <span>{str}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {report.areas_for_improvement && report.areas_for_improvement.length > 0 && (
+                        <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-amber-800 flex items-center gap-1 mb-1.5">
+                            <Target size={12} className="text-amber-600" /> Adjustments Needed
+                          </p>
+                          <ul className="space-y-1 text-xs text-slate-700">
+                            {report.areas_for_improvement.map((imp, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <span className="text-amber-600 font-bold">•</span>
+                                <span>{imp}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Safety note */}
+                    {report.safety_note && (
+                      <div className="rounded-xl border border-blue-200/80 bg-blue-50/50 p-3 text-xs text-slate-700 flex items-start gap-2">
+                        <ShieldCheck size={15} className="text-blue-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-slate-900">Safety Tip:</strong> {report.safety_note}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              return selectedSession.ai_summary ? (
+                <div className="rounded-2xl border border-cyan-100 bg-cyan-50/50 p-4 mb-6 text-left">
+                  <div className="flex items-center gap-2 text-cyan-800 font-bold text-xs mb-1.5">
+                    <Award size={16} />
+                    <span>AI Performance Analysis</span>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                    {selectedSession.ai_summary}
+                  </p>
+                </div>
+              ) : null;
+            })()}
 
             {/* Actions */}
             <div className="flex gap-3">

@@ -11,6 +11,7 @@ import {
   LogOut,
   Sparkles,
   Trophy,
+  Smile,
   Menu,
   X,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const Navbar = () => {
   const navItems = [
     { to: "/dashboard", icon: <Home size={17} />, text: "Dashboard" },
     { to: "/pose-analysis", icon: <Video size={17} />, text: "Pose Analysis" },
+    { to: "/reaction-analysis", icon: <Smile size={17} />, text: "Reaction AI" },
     { to: "/sessions", icon: <History size={17} />, text: "Sessions" },
     { to: "/progress", icon: <TrendingUp size={17} />, text: "Progress" },
     { to: "/leaderboard", icon: <Trophy size={17} />, text: "Leaderboard" },

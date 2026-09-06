@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -9,10 +9,12 @@ import {
   Bot,
   Brain,
   Camera,
+  Captions,
   Check,
   CheckCircle2,
   CircleStop,
   Clock3,
+  Cpu,
   Dumbbell,
   Eye,
   Flame,
@@ -38,6 +40,7 @@ import {
   Video,
   Volume2,
   VolumeX,
+  X,
   XCircle,
   Zap,
 } from "lucide-react";
@@ -60,8 +63,24 @@ const DEFAULT_BODY_GROUPS = [
   { name: "Right leg", tracked: true },
 ];
 
-const PoseAnalysis = () => {
+const PoseAnalysis = ({ initialExercise }) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const queryExercise =
+    searchParams.get("exercise") ||
+    (location.pathname === "/reaction-analysis" ? "reaction" : null);
+
+  const [selectedExercise, setSelectedExercise] = useState(
+    initialExercise || queryExercise || "squat"
+  );
+
+  useEffect(() => {
+    if (queryExercise && queryExercise !== selectedExercise) {
+      setSelectedExercise(queryExercise);
+    }
+  }, [queryExercise]);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -69,7 +88,6 @@ const PoseAnalysis = () => {
   const captureIntervalRef = useRef(null);
   const calibIntervalRef = useRef(null);
 
-  const [selectedExercise, setSelectedExercise] = useState("squat");
   const [cameraActive, setCameraActive] = useState(false);
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -85,6 +103,30 @@ const PoseAnalysis = () => {
 
   // Real-time AI Feed Summary & Telemetry Insight state
   const [liveAiSummary, setLiveAiSummary] = useState(null);
+  const [isSpeakingReport, setIsSpeakingReport] = useState(false);
+
+  const speakReport = (report) => {
+    if (!("speechSynthesis" in window) || !report) return;
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingReport(false);
+      return;
+    }
+    const parts = [
+      report.headline || "",
+      report.overview || "",
+      report.areas_for_improvement?.length ? `Focus areas for next time: ${report.areas_for_improvement.join(". ")}` : "",
+      report.safety_note ? `Safety tip: ${report.safety_note}` : "",
+      report.recovery_recommendation ? `Recovery protocol: ${report.recovery_recommendation}` : "",
+    ].filter(Boolean);
+
+    const utterance = new SpeechSynthesisUtterance(parts.join(". "));
+    utterance.rate = 1.0;
+    utterance.onend = () => setIsSpeakingReport(false);
+    utterance.onerror = () => setIsSpeakingReport(false);
+    setIsSpeakingReport(true);
+    window.speechSynthesis.speak(utterance);
+  };
 
   // The skeleton-annotated JPEG returned by the backend each frame.
   const [annotatedFrame, setAnnotatedFrame] = useState(null);
@@ -104,8 +146,10 @@ const PoseAnalysis = () => {
     drowsiness_warning: false,
   });
 
-  // Audio voice feedback state
+  // Audio voice feedback & video caption state
   const [speechEnabled, setSpeechEnabled] = useState(true);
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const lastSpokenRef = useRef({ text: "", time: 0 });
   const globalSpeechCooldownRef = useRef(0);
 
@@ -197,65 +241,183 @@ const PoseAnalysis = () => {
       name: "Study & Interview Guard",
       category: "Desk Ergonomics",
       icon: <BookOpen size={20} />,
-      description:
-        "Real-time neck tilt, slouching, and distance alerts for long study & test sessions.",
+      description: "Real-time neck tilt, slouching, and distance alerts for long study & interview sessions.",
+      difficulty: "All Levels",
+      targetMuscles: ["Cervical Spine", "Upper Trapezius", "Rhomboids", "Thoracic Extensors"],
+      steps: [
+        "Sit all the way back into your chair so your lumbar spine is supported.",
+        "Align your monitor or screen at eye level, roughly 20-28 inches away.",
+        "Keep shoulders relaxed, retracted gently down and back (avoid hunching).",
+        "Plant both feet firmly flat on the floor with knees at a 90° angle."
+      ],
+      commonMistakes: [
+        "Forward head poke ('text neck') straining cervical spine",
+        "Slouching lumbar spine into the seat base",
+        "Crossing legs for prolonged periods causing pelvic tilt"
+      ],
+      breathing: "Maintain slow, diaphragmatic breathing to oxygenate brain and relieve shoulder tension."
     },
     {
       id: "squat",
       name: "Squat",
-      category: "Gym",
+      category: "Gym & Strength",
       icon: <Dumbbell size={20} />,
-      description: "Analyze knee, hip and back alignment.",
+      description: "Analyze knee tracking, hip hinge depth, and neutral spine alignment.",
+      difficulty: "Beginner to Intermediate",
+      targetMuscles: ["Quadriceps", "Gluteus Maximus", "Hamstrings", "Core", "Erector Spinae"],
+      steps: [
+        "Position feet shoulder-width apart with toes flared outward slightly (10-15°).",
+        "Initiate descent by hinging at the hips and bending knees simultaneously.",
+        "Lower until thighs reach parallel to the floor (hip crease level with knee joints).",
+        "Drive through your mid-foot and heels to return to tall standing lockout."
+      ],
+      commonMistakes: [
+        "Knee valgus collapse (knees caving inward during ascent)",
+        "Heels peeling off the floor under load",
+        "Excessive torso forward lean rounding the lower back"
+      ],
+      breathing: "Inhale deeply into your belly at the top to brace core; exhale forcefully past sticking point."
     },
     {
       id: "pushup",
       name: "Push-up",
-      category: "Strength",
+      category: "Calisthenics & Strength",
       icon: <Activity size={20} />,
-      description: "Analyze body alignment and elbow position.",
+      description: "Analyze full body plank alignment, chest depth, and elbow flaring.",
+      difficulty: "Beginner to Intermediate",
+      targetMuscles: ["Pectoralis Major", "Triceps Brachii", "Anterior Deltoids", "Core Stabilizers"],
+      steps: [
+        "Set hands slightly wider than shoulder-width with fingers pointed forward or slightly out.",
+        "Establish rigid plank alignment from the crown of your head down to your heels.",
+        "Lower your chest until it is roughly 2 inches off the floor with elbows tracking at ~45°.",
+        "Press the floor away explosively until elbows achieve controlled full extension."
+      ],
+      commonMistakes: [
+        "Hips sagging downward (lumbar hyperextension)",
+        "Elbows flaring out wide at 90° stressing shoulder rotator cuffs",
+        "Drooping the head and neck forward to fake depth"
+      ],
+      breathing: "Inhale on the eccentric descent; exhale steadily while pressing upward."
     },
     {
       id: "suryanamaskar",
       name: "Surya Namaskar",
-      category: "Yoga",
+      category: "Traditional Yoga Flow",
       icon: <Sparkles size={20} />,
-      description: "Analyze posture throughout the movement sequence.",
+      description: "Analyze kinetic flow and posture symmetry throughout the 12 sacred sun salutation asanas.",
+      difficulty: "All Levels",
+      targetMuscles: ["Full Body Kinetic Chain", "Hamstrings", "Spinal Flexibility", "Chest & Shoulders"],
+      steps: [
+        "Pranamasana: Stand tall, palms pressed together at heart center (Anjali Mudra).",
+        "Hastauttanasana: Inhale, sweep arms upward and gently arch back opening chest.",
+        "Padahastasana: Exhale, hinge forward from the hips with a long spine touching the floor.",
+        "Flow dynamically through Ashwa Sanchalanasana, Dandasana, Ashtanga Namaskara, and Bhujangasana."
+      ],
+      commonMistakes: [
+        "Holding breath between asana transitions instead of flowing with breath",
+        "Compressing the lumbar spine during backbends instead of opening thoracic cage",
+        "Rushing transitions without establishing joint grounding"
+      ],
+      breathing: "Synchronize one breath per movement: inhale when expanding or arching, exhale when folding forward."
     },
     {
       id: "tree_pose",
-      name: "Tree Pose",
-      category: "Yoga",
+      name: "Tree Pose (Vrikshasana)",
+      category: "Hatha Yoga & Balance",
       icon: <Target size={20} />,
-      description: "Analyze balance and body alignment.",
+      description: "Analyze single-leg balance, pelvic levelness, and vertical spine symmetry.",
+      difficulty: "Beginner to Intermediate",
+      targetMuscles: ["Ankle Stabilizers", "Calves", "Gluteus Medius", "Deep Core Stabilizers"],
+      steps: [
+        "Root down firmly through all four corners of your supporting standing foot.",
+        "Rest the sole of your opposite foot on your inner thigh or calf (never directly against the knee).",
+        "Bring hands to prayer at chest center or extend branches overhead.",
+        "Fix your gaze (Drishti) on an unmoving visual anchor point at eye level."
+      ],
+      commonMistakes: [
+        "Pressing the foot directly against the side of the knee joint",
+        "Allowing standing hip to pop out sideways losing pelvic neutrality",
+        "Shallow breathing or tensing the neck and shoulders"
+      ],
+      breathing: "Breathe slowly and deeply through the nose to calm the vestibular system."
     },
     {
       id: "lunges",
       name: "Lunges",
-      category: "Gym",
+      category: "Gym & Unilateral",
       icon: <Activity size={20} />,
-      description: "Analyze knee and lower-body alignment.",
+      description: "Analyze front knee alignment, vertical torso posture, and hip levelness.",
+      difficulty: "Beginner to Intermediate",
+      targetMuscles: ["Quadriceps", "Glutes", "Hamstrings", "Calves", "Hip Stabilizers"],
+      steps: [
+        "Step forward smoothly with your lead leg, keeping your torso completely upright.",
+        "Lower your back knee towards the floor until both knees form roughly 90° angles.",
+        "Check that your front knee tracks in line with your second toe without crossing the foot.",
+        "Drive through your front heel firmly to return to the tall starting stance."
+      ],
+      commonMistakes: [
+        "Front knee caving inward (valgus collapse)",
+        "Torso pitching forward over the front thigh",
+        "Short step causing front heel to elevate off the ground"
+      ],
+      breathing: "Inhale as you step forward and lower; exhale as you push back to tall position."
     },
     {
       id: "plank",
       name: "Plank",
-      category: "Core",
+      category: "Core Stability",
       icon: <Gauge size={20} />,
-      description: "Analyze shoulder, hip and spine alignment.",
+      description: "Analyze forearm positioning, neutral spine, and anti-extension core hold.",
+      difficulty: "Beginner to Intermediate",
+      targetMuscles: ["Rectus Abdominis", "Transverse Abdominis", "Glutes", "Serratus Anterior"],
+      steps: [
+        "Place forearms flat on the floor with elbows stacked directly beneath shoulders.",
+        "Extend legs back, pressing heels backward and balancing on the balls of your feet.",
+        "Engage your abdominal wall and squeeze your glutes into a rigid straight line.",
+        "Keep cervical spine neutral by directing your gaze toward the floor between your hands."
+      ],
+      commonMistakes: [
+        "Sagging hips causing hyperextension and compressive load on the lumbar spine",
+        "Piking hips up toward the ceiling",
+        "Holding breath which spikes blood pressure"
+      ],
+      breathing: "Take steady, shallow controlled breaths while keeping abdominal wall braced."
     },
     {
-      id: "posture",
-      name: "General Posture",
-      category: "Ergonomics",
-      icon: <Eye size={20} />,
-      description: "Analyze overall posture balance and shoulder level.",
+      id: "reaction",
+      name: "Analyse Reaction",
+      category: "Reaction & Emotion",
+      icon: <Smile size={20} />,
+      description: "Analyze real-time facial expressions, drowsiness alerts, and cognitive emotion telemetry.",
+      difficulty: "All Levels",
+      targetMuscles: ["Facial Muscle Blendshapes", "Blink/Eye Openness", "Fatigue & Exertion"],
+      steps: [
+        "Center your face directly in the camera viewport with clear frontal lighting.",
+        "Keep your head relaxed and natural facing the screen.",
+        "AI tracks 468 facial mesh landmarks, micro-expressions, and eye aspect ratios.",
+        "Review real-time mood and fatigue metrics displayed dynamically on the feed."
+      ],
+      commonMistakes: [
+        "Dim or harsh backlighting blinding facial landmark tracking",
+        "Sitting too far from the webcam lens",
+        "Covering the mouth or eyes with hands"
+      ],
+      breathing: "Breathe naturally and stay comfortably focused throughout the session."
     },
   ];
+
+  const currentExercise = exercises.find((item) => item.id === selectedExercise) || exercises[0];
 
   // ============================================================
   // CAMERA
   // ============================================================
   const startCamera = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setFeedback("कैमरा केवल HTTPS या localhost पर काम करता है। मोबाइल पर वाई-फाई एक्सेस के लिए HTTPS या Chrome flags (Insecure Origins) सक्षम करें।");
+        setFeedbackType("error");
+        return false;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: 1280,
@@ -465,17 +627,20 @@ const PoseAnalysis = () => {
       if (ai_live_summary) {
         setLiveAiSummary(ai_live_summary);
       }
-      if (expression && expressionEnabled) {
-        setExpressionData(expression);
+      if (selectedExercise === "reaction") {
+        if (expression && expressionEnabled) {
+          setExpressionData(expression);
+        }
+        setReps(metrics.total_reps ?? 0);
+        setAccuracy(metrics.score ?? metrics.accuracy ?? 85);
+      } else {
+        const totalReps = metrics.total_reps ?? 0;
+        const correctReps = metrics.correct_reps ?? 0;
+        setReps(totalReps);
+        setAccuracy(
+          totalReps > 0 ? Math.round((correctReps / totalReps) * 100) : 0
+        );
       }
-
-      const totalReps = metrics.total_reps ?? 0;
-      const correctReps = metrics.correct_reps ?? 0;
-
-      setReps(totalReps);
-      setAccuracy(
-        totalReps > 0 ? Math.round((correctReps / totalReps) * 100) : 0
-      );
 
       if (metrics.feedback) {
         setFeedback(metrics.feedback);
@@ -917,6 +1082,14 @@ const PoseAnalysis = () => {
                 <div className="flex items-center gap-2">
                   <Video size={18} className="text-cyan-600" />
                   <h2 className="font-bold text-slate-900">Live Camera Feed</h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowInfoModal(true)}
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 border border-cyan-200 hover:bg-cyan-100 hover:text-cyan-700 transition shadow-2xs"
+                    title={`View guide & information for ${currentExercise.name}`}
+                  >
+                    <Info size={13} />
+                  </button>
                 </div>
                 <p className="mt-0.5 text-xs text-slate-400">
                   {exercises.find((item) => item.id === selectedExercise)?.name}
@@ -971,13 +1144,20 @@ const PoseAnalysis = () => {
                       LIVE
                     </div>
 
-                    <div className="flex items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs font-semibold text-cyan-300 backdrop-blur-md">
-                      <UserCheck size={13} className="text-cyan-400" />
-                      <span>{bodyMap.mode === "adaptive" ? "Adaptive Mode" : "Standard Mode"}</span>
-                    </div>
+                    {selectedExercise === "reaction" ? (
+                      <div className="flex items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs font-semibold text-cyan-300 backdrop-blur-md">
+                        <Smile size={13} className="text-cyan-400" />
+                        <span>Reaction Mode</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs font-semibold text-cyan-300 backdrop-blur-md">
+                        <UserCheck size={13} className="text-cyan-400" />
+                        <span>{bodyMap.mode === "adaptive" ? "Adaptive Mode" : "Standard Mode"}</span>
+                      </div>
+                    )}
 
-                    {/* Live Mood & Fatigue Telemetry Pill */}
-                    {expressionEnabled && (
+                    {/* Live Mood & Fatigue Telemetry Pill (ONLY IN REACTION MODE) */}
+                    {selectedExercise === "reaction" && expressionEnabled && (
                       <div
                         className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition ${
                           expressionData.drowsiness_warning
@@ -1019,10 +1199,33 @@ const PoseAnalysis = () => {
                         </>
                       )}
                     </button>
+
+                    <button
+                      onClick={() => setCaptionsEnabled(!captionsEnabled)}
+                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition ${
+                        captionsEnabled
+                          ? "border-cyan-400/60 bg-cyan-950/80 text-cyan-200 shadow-sm"
+                          : "border-white/20 bg-black/60 text-slate-400 hover:bg-black/80"
+                      }`}
+                      title={captionsEnabled ? "Hide AI Video Captions" : "Show AI Video Captions"}
+                    >
+                      <Captions size={13} className={captionsEnabled ? "text-cyan-400" : "text-slate-400"} />
+                      <span>{captionsEnabled ? "Captions On" : "Captions Off"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowInfoModal(true)}
+                      className="flex items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md hover:bg-black/80 transition"
+                      title={`Form guide & posture info for ${currentExercise.name}`}
+                    >
+                      <Info size={13} className="text-cyan-400" />
+                      <span>Info</span>
+                    </button>
                   </div>
 
-                  {/* Drowsiness / Fatigue Flashing Warning Banner */}
-                  {expressionEnabled && expressionData?.drowsiness_warning && (
+                  {/* Drowsiness / Fatigue Flashing Warning Banner (ONLY IN REACTION MODE) */}
+                  {selectedExercise === "reaction" && expressionEnabled && expressionData?.drowsiness_warning && (
                     <div className="absolute top-16 left-4 right-4 z-20 flex items-center justify-center gap-2.5 rounded-2xl border border-amber-400/80 bg-amber-950/95 p-3.5 text-amber-200 shadow-2xl backdrop-blur-md animate-bounce">
                       <AlertTriangle size={20} className="text-amber-400 shrink-0" />
                       <p className="text-xs font-bold text-center">
@@ -1065,37 +1268,149 @@ const PoseAnalysis = () => {
                   {/* Bounding Guide Box (shown when idle before analysis) */}
                   {!analysisRunning && !isCalibrating && (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <div className="relative h-[75%] w-[35%] min-w-[170px] max-w-[280px] rounded-[36px] border border-dashed border-cyan-400/60">
-                        <div className="absolute -left-1 -top-1 h-5 w-5 border-l-2 border-t-2 border-cyan-400" />
-                        <div className="absolute -right-1 -top-1 h-5 w-5 border-r-2 border-t-2 border-cyan-400" />
-                        <div className="absolute -bottom-1 -left-1 h-5 w-5 border-b-2 border-l-2 border-cyan-400" />
-                        <div className="absolute -bottom-1 -right-1 h-5 w-5 border-b-2 border-r-2 border-cyan-400" />
-                      </div>
+                      {selectedExercise === "reaction" ? (
+                        <div className="relative h-[48%] w-[32%] min-w-[160px] max-w-[240px] rounded-[36px] border border-dashed border-cyan-400/70 shadow-lg flex items-end justify-center pb-3">
+                          <div className="absolute -left-1 -top-1 h-5 w-5 border-l-2 border-t-2 border-cyan-400" />
+                          <div className="absolute -right-1 -top-1 h-5 w-5 border-r-2 border-t-2 border-cyan-400" />
+                          <div className="absolute -bottom-1 -left-1 h-5 w-5 border-b-2 border-l-2 border-cyan-400" />
+                          <div className="absolute -bottom-1 -right-1 h-5 w-5 border-b-2 border-r-2 border-cyan-400" />
+                          <span className="rounded-full bg-cyan-950/80 px-2.5 py-0.5 text-[10px] font-bold text-cyan-300 backdrop-blur-md">
+                            Position Face Here
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="relative h-[75%] w-[35%] min-w-[170px] max-w-[280px] rounded-[36px] border border-dashed border-cyan-400/60">
+                          <div className="absolute -left-1 -top-1 h-5 w-5 border-l-2 border-t-2 border-cyan-400" />
+                          <div className="absolute -right-1 -top-1 h-5 w-5 border-r-2 border-t-2 border-cyan-400" />
+                          <div className="absolute -bottom-1 -left-1 h-5 w-5 border-b-2 border-l-2 border-cyan-400" />
+                          <div className="absolute -bottom-1 -right-1 h-5 w-5 border-b-2 border-r-2 border-cyan-400" />
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {/* Top-right AI status */}
                   {analysisRunning && (
-                    <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-950/80 px-3 py-1.5 text-xs font-bold text-cyan-300 backdrop-blur-md">
+                    <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-950/80 px-3 py-1.5 text-xs font-bold text-cyan-300 backdrop-blur-md z-10">
                       <Sparkles size={13} className="text-cyan-400 animate-spin" />
                       AI ANALYZING
                     </div>
                   )}
 
-                  {/* Bottom-left Pose Status */}
-                  <div className="absolute bottom-4 left-4 rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 backdrop-blur-md">
-                    <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">
-                      Pose Status
-                    </p>
-                    <p className="mt-0.5 flex items-center gap-2 text-xs font-bold text-white">
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          bodyStatus === "Detecting" ? "bg-emerald-400" : "bg-cyan-400"
-                        }`}
-                      />
-                      {bodyStatus}
-                    </p>
-                  </div>
+                  {/* Floating Live Reps Count Widget on Video Feed */}
+                  {analysisRunning && (
+                    <div className="absolute right-4 top-14 z-20 flex items-center gap-2.5 rounded-2xl border border-cyan-400/50 bg-slate-950/85 px-3.5 py-2 shadow-2xl backdrop-blur-xl text-white">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-md ring-1 ring-cyan-400/40">
+                        <Dumbbell size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase font-bold tracking-wider text-cyan-300">
+                          {selectedExercise === "reaction" ? "Reactions" : "Reps Count"}
+                        </p>
+                        <p className="text-xl font-black text-white leading-none">
+                          {reps}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Live Video Feed Caption Overlay (Summary & Comments) */}
+                  {analysisRunning && captionsEnabled && (
+                    <div className="absolute bottom-3 inset-x-3 sm:inset-x-5 z-20 pointer-events-none">
+                      <div className="overflow-hidden rounded-2xl border border-cyan-400/50 bg-slate-950/90 p-3 sm:p-4 shadow-2xl backdrop-blur-xl text-white pointer-events-auto transition-all duration-300 ring-1 ring-cyan-500/20">
+                        {/* Caption Header Pill */}
+                        <div className="flex items-center justify-between gap-2 mb-1.5 border-b border-white/10 pb-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="flex items-center gap-1.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-cyan-300 shadow-xs">
+                              <Sparkles size={11} className="text-cyan-400 animate-spin" />
+                              AI Live Summary & Comments
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                                (liveAiSummary?.form_quality || "Optimal") === "Optimal"
+                                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30"
+                                  : (liveAiSummary?.form_quality || "Optimal") === "Needs Attention"
+                                  ? "bg-amber-500/20 text-amber-300 border border-amber-400/30"
+                                  : "bg-rose-500/20 text-rose-300 border border-rose-400/30"
+                              }`}
+                            >
+                              {(liveAiSummary?.form_quality || "Optimal") === "Optimal" ? (
+                                <CheckCircle2 size={10} />
+                              ) : (liveAiSummary?.form_quality || "Optimal") === "Needs Attention" ? (
+                                <AlertTriangle size={10} />
+                              ) : (
+                                <ShieldAlert size={10} />
+                              )}
+                              {liveAiSummary?.form_quality || (accuracy >= 80 ? "Optimal" : "Needs Attention")}
+                            </span>
+                            {liveAiSummary?.focus_joint && (
+                              <span className="hidden sm:inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">
+                                <Target size={10} className="text-cyan-400" />
+                                {liveAiSummary.focus_joint}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center gap-1 rounded-md bg-cyan-500/25 border border-cyan-400/40 px-2 py-0.5 text-[10px] font-black text-cyan-200 shadow-xs">
+                              <Activity size={10} className="text-cyan-300" />
+                              {reps} REPS
+                            </span>
+                            <span className="text-[10px] font-mono text-cyan-300/90 font-bold">
+                              {accuracy}% ACC
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* AI Summary Text */}
+                        <div className="text-xs sm:text-sm font-medium text-slate-100 leading-snug tracking-wide drop-shadow-sm flex items-start gap-2">
+                          <Bot size={15} className="mt-0.5 text-cyan-400 shrink-0" />
+                          <span className="flex-1">
+                            {liveAiSummary?.summary || feedback || `Live kinematics active. Maintain cadence and posture balance.`}
+                          </span>
+                        </div>
+
+                        {/* AI Comments & Coaching Tip Row */}
+                        {(liveAiSummary?.coaching_tip || liveAiSummary?.live_speech || feedback) && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 pt-1.5 border-t border-white/5 text-[11px] sm:text-xs">
+                            <div className="flex items-center gap-1.5 rounded-lg bg-amber-400/15 border border-amber-400/30 px-2 py-0.5 text-amber-100 font-medium">
+                              <Lightbulb size={12} className="text-amber-400 shrink-0 animate-pulse" />
+                              <span className="font-bold text-amber-300">AI Comment:</span>
+                              <span>{liveAiSummary?.coaching_tip || feedback}</span>
+                            </div>
+
+                            {liveAiSummary?.live_speech && (
+                              <div className="flex items-center gap-1 rounded-lg bg-cyan-400/10 border border-cyan-400/20 px-2 py-0.5 text-cyan-200 italic">
+                                <Volume2 size={11} className="text-cyan-400 shrink-0" />
+                                <span>"{liveAiSummary.live_speech}"</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bottom-left Pose Status (shown when captions not covering or before analysis) */}
+                  {(!analysisRunning || !captionsEnabled) && (
+                    <div className="absolute bottom-4 left-4 rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 backdrop-blur-md">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">
+                        {selectedExercise === "reaction" ? "Face Status" : "Pose Status"}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-2 text-xs font-bold text-white">
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            bodyStatus === "Detecting" ? "bg-emerald-400" : "bg-cyan-400"
+                          }`}
+                        />
+                        {selectedExercise === "reaction"
+                          ? expressionData.face_detected
+                            ? "Face Locked"
+                            : "Scanning Face"
+                          : bodyStatus}
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1107,7 +1422,9 @@ const PoseAnalysis = () => {
                   </div>
                   <h3 className="text-lg font-bold text-white">Camera is not started</h3>
                   <p className="mt-1.5 max-w-md text-xs leading-5 text-slate-400">
-                    Enable camera to start live posture detection and run Body Map calibration.
+                    {selectedExercise === "reaction"
+                      ? "Enable camera to start live facial reaction & emotion recognition."
+                      : "Enable camera to start live posture detection and run Body Map calibration."}
                   </p>
                 </div>
               )}
@@ -1131,17 +1448,19 @@ const PoseAnalysis = () => {
                     className="flex flex-1 items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 py-3.5 font-bold text-white shadow-md shadow-cyan-600/20 transition hover:-translate-y-0.5 disabled:opacity-50"
                   >
                     <Play size={18} />
-                    {loading ? "Starting..." : "Start AI Analysis"}
+                    {loading ? "Starting..." : selectedExercise === "reaction" ? "Analyse Reaction" : "Start AI Analysis"}
                   </button>
 
-                  <button
-                    onClick={startCalibration}
-                    disabled={loading || isCalibrating}
-                    className="flex items-center justify-center gap-2 rounded-2xl border border-cyan-200 bg-cyan-50/70 px-5 py-3.5 text-xs font-bold text-cyan-700 transition hover:bg-cyan-100"
-                  >
-                    <Scan size={16} />
-                    Calibrate Body
-                  </button>
+                  {selectedExercise !== "reaction" && (
+                    <button
+                      onClick={startCalibration}
+                      disabled={loading || isCalibrating}
+                      className="flex items-center justify-center gap-2 rounded-2xl border border-cyan-200 bg-cyan-50/70 px-5 py-3.5 text-xs font-bold text-cyan-700 transition hover:bg-cyan-100"
+                    >
+                      <Scan size={16} />
+                      Calibrate Body
+                    </button>
+                  )}
                 </>
               ) : (
                 <button
@@ -1180,65 +1499,103 @@ const PoseAnalysis = () => {
           ================================================== */}
           <aside className="space-y-4">
             {/* AI Live Feed Summary Card */}
-            <div className="overflow-hidden rounded-[26px] border border-cyan-500/30 bg-gradient-to-b from-cyan-950/40 via-slate-900/60 to-slate-950/80 p-5 shadow-xl backdrop-blur-xl text-white">
+            <div className="relative overflow-hidden rounded-[28px] border border-cyan-500/30 bg-gradient-to-br from-slate-900/95 via-cyan-950/40 to-slate-950/95 p-5 shadow-2xl backdrop-blur-2xl text-white">
+              <div className="absolute -top-12 -right-12 h-28 w-28 rounded-full bg-cyan-500/10 blur-2xl pointer-events-none" />
+              
               <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/20 text-cyan-300 ring-1 ring-cyan-400/30">
-                    <Bot size={18} className={analysisRunning ? "animate-bounce" : ""} />
+                  <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400/40 shadow-inner">
+                    <Bot size={20} className={analysisRunning ? "animate-bounce" : ""} />
+                    {analysisRunning && (
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500" />
+                      </span>
+                    )}
                   </div>
                   <div>
-                    <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                      AI Live Feed Summary
+                    <h3 className="font-black text-sm text-white tracking-tight flex items-center gap-1.5">
+                      Neural Telemetry AI
                     </h3>
-                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
-                      Telemetry AI Parser
+                    <p className="text-[10px] uppercase tracking-wider text-cyan-300/80 font-semibold flex items-center gap-1">
+                      <Cpu size={11} className="text-cyan-400" /> Qwen-2.5 Biomechanics Engine
                     </p>
                   </div>
                 </div>
-                <Brain size={18} className="text-cyan-400" />
+                <div className="flex items-center gap-1 rounded-full bg-cyan-400/10 border border-cyan-400/30 px-2.5 py-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Live AI</span>
+                </div>
               </div>
 
               {liveAiSummary ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-xl bg-white/10 p-2.5 border border-white/10">
-                    <span className="text-xs text-slate-300 font-medium">Form Evaluation</span>
-                    <span
-                      className={`rounded-lg px-2 py-0.5 text-xs font-bold ${
-                        liveAiSummary.form_quality === "Optimal"
-                          ? "bg-emerald-400/20 text-emerald-300 border border-emerald-400/30"
-                          : liveAiSummary.form_quality === "Needs Attention"
-                          ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
-                          : "bg-red-400/20 text-red-300 border border-red-400/30"
-                      }`}
-                    >
-                      {liveAiSummary.form_quality || "Optimal"}
-                    </span>
+                  {/* Status Badges Row */}
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-white/5 p-2 border border-white/10">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-300 font-medium">Form State:</span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-black shadow-sm ${
+                          liveAiSummary.form_quality === "Optimal"
+                            ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40"
+                            : liveAiSummary.form_quality === "Needs Attention"
+                            ? "bg-amber-500/25 text-amber-300 border border-amber-400/40"
+                            : "bg-rose-500/25 text-rose-300 border border-rose-400/40"
+                        }`}
+                      >
+                        {liveAiSummary.form_quality === "Optimal" ? (
+                          <CheckCircle2 size={12} />
+                        ) : liveAiSummary.form_quality === "Needs Attention" ? (
+                          <AlertTriangle size={12} />
+                        ) : (
+                          <ShieldAlert size={12} />
+                        )}
+                        {liveAiSummary.form_quality || "Optimal"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 rounded-lg bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 text-[11px] font-semibold text-cyan-200">
+                      <Target size={12} className="text-cyan-400 shrink-0" />
+                      <span className="truncate max-w-[95px]">{liveAiSummary.focus_joint || "Spine & Core"}</span>
+                    </div>
                   </div>
 
-                  <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                    <p className="text-xs leading-relaxed text-slate-200">
+                  {/* Real-time AI Diagnostic Statement */}
+                  <div className="rounded-2xl border border-cyan-500/20 bg-black/40 p-3.5 shadow-inner">
+                    <p className="text-xs leading-relaxed text-slate-100 font-normal">
                       {liveAiSummary.summary}
                     </p>
                   </div>
 
+                  {/* Real-time Coaching Tip */}
                   {liveAiSummary.coaching_tip && (
-                    <div className="flex items-start gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-2.5">
-                      <Lightbulb size={15} className="mt-0.5 shrink-0 text-cyan-300 animate-pulse" />
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">
-                          AI Coaching Tip
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-200 leading-snug">
-                          {liveAiSummary.coaching_tip}
-                        </p>
+                    <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-transparent p-3">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 mb-1">
+                        <Lightbulb size={13} className="text-amber-400 animate-pulse shrink-0" />
+                        AI Kinematic Cue
                       </div>
+                      <p className="text-xs text-amber-100 font-medium leading-snug">
+                        {liveAiSummary.coaching_tip}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Live Speech Voice Output */}
+                  {liveAiSummary.live_speech && (
+                    <div className="flex items-center gap-2 rounded-xl bg-cyan-500/10 border border-cyan-500/25 px-2.5 py-1.5 text-[11px] text-cyan-200 font-medium">
+                      <Volume2 size={13} className="text-cyan-400 shrink-0 animate-pulse" />
+                      <span className="truncate italic">"{liveAiSummary.live_speech}"</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-center">
-                  <p className="text-xs text-slate-400">
-                    Start camera & AI analysis to parse real-time posture telemetry.
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
+                  <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-300 ring-1 ring-cyan-400/20">
+                    <Activity size={18} className="animate-pulse" />
+                  </div>
+                  <p className="text-xs font-semibold text-slate-300">Ready for Live Kinematics</p>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Start camera & analysis to stream posture keypoints to the local AI engine.
                   </p>
                 </div>
               )}
@@ -1246,144 +1603,147 @@ const PoseAnalysis = () => {
 
             {/* ==================================================
                 FACIAL EXPRESSION, MOOD & FATIGUE INTELLIGENCE CARD
+                (ONLY SHOWN WHEN ANALYSE REACTION IS SELECTED)
             ================================================== */}
-            <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-50 text-cyan-600">
-                    <Smile size={18} />
+            {selectedExercise === "reaction" && (
+              <div className="overflow-hidden rounded-[26px] border border-cyan-300/80 bg-white p-5 shadow-sm transition hover:shadow-md">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-50 text-cyan-600">
+                      <Smile size={18} />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                        Reaction & Emotion AI
+                      </h3>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
+                        Facial Telemetry
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
-                      Mood & Fatigue AI
-                    </h3>
-                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
-                      Facial Telemetry
-                    </p>
-                  </div>
+
+                  {/* Toggle switch for facial AI */}
+                  <button
+                    type="button"
+                    onClick={() => setExpressionEnabled(!expressionEnabled)}
+                    className={`flex items-center gap-1 rounded-xl px-2.5 py-1 text-[11px] font-bold transition ${
+                      expressionEnabled
+                        ? "bg-cyan-50 text-cyan-700 border border-cyan-200"
+                        : "bg-slate-100 text-slate-400 hover:text-slate-600"
+                    }`}
+                    title={expressionEnabled ? "Disable Facial AI" : "Enable Facial AI"}
+                  >
+                    <Sparkles size={11} className={expressionEnabled ? "text-cyan-600" : ""} />
+                    {expressionEnabled ? "Active" : "Paused"}
+                  </button>
                 </div>
 
-                {/* Toggle switch for facial AI */}
-                <button
-                  type="button"
-                  onClick={() => setExpressionEnabled(!expressionEnabled)}
-                  className={`flex items-center gap-1 rounded-xl px-2.5 py-1 text-[11px] font-bold transition ${
-                    expressionEnabled
-                      ? "bg-cyan-50 text-cyan-700 border border-cyan-200"
-                      : "bg-slate-100 text-slate-400 hover:text-slate-600"
-                  }`}
-                  title={expressionEnabled ? "Disable Facial AI" : "Enable Facial AI"}
-                >
-                  <Sparkles size={11} className={expressionEnabled ? "text-cyan-600" : ""} />
-                  {expressionEnabled ? "Active" : "Paused"}
-                </button>
-              </div>
+                {expressionEnabled ? (
+                  <div className="space-y-4">
+                    {/* Dominant Mood Badge */}
+                    <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-50 to-cyan-50/50 p-3.5 border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{expressionData.emoji || "🙂"}</span>
+                        <div>
+                          <p className="text-xs font-black capitalize text-slate-900">
+                            {expressionData.dominant_emotion || "Neutral"} ({expressionData.confidence || 80}%)
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-medium">
+                            {expressionData.state_label || "Focused & Engaged"}
+                          </p>
+                        </div>
+                      </div>
+                      {expressionData.drowsiness_warning ? (
+                        <span className="rounded-lg bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700 animate-pulse">
+                          Fatigue Alert
+                        </span>
+                      ) : (
+                        <span className="rounded-lg bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                          Calibrated
+                        </span>
+                      )}
+                    </div>
 
-              {expressionEnabled ? (
-                <div className="space-y-4">
-                  {/* Dominant Mood Badge */}
-                  <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-50 to-cyan-50/50 p-3.5 border border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{expressionData.emoji || "🙂"}</span>
+                    {/* Dynamic Metric Bars */}
+                    <div className="space-y-2.5 pt-1">
                       <div>
-                        <p className="text-xs font-black capitalize text-slate-900">
-                          {expressionData.dominant_emotion || "Neutral"} ({expressionData.confidence || 80}%)
-                        </p>
-                        <p className="text-[10px] text-slate-500 font-medium">
-                          {expressionData.state_label || "Focused & Engaged"}
-                        </p>
+                        <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
+                          <span className="flex items-center gap-1">
+                            <HeartPulse size={12} className="text-emerald-500" /> Focus & Engagement
+                          </span>
+                          <span>{expressionData.engagement_score || 85}%</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                            style={{ width: `${expressionData.engagement_score || 85}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
+                          <span className="flex items-center gap-1">
+                            <Flame size={12} className="text-amber-500" /> Muscle Exertion / Tension
+                          </span>
+                          <span>{expressionData.tension_score || 15}%</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                            style={{ width: `${expressionData.tension_score || 15}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
+                          <span className="flex items-center gap-1">
+                            <Eye size={12} className="text-cyan-500" /> Fatigue & Drowsiness Index
+                          </span>
+                          <span className={expressionData.drowsiness_warning ? "text-red-600 font-black" : ""}>
+                            {expressionData.fatigue_score || 10}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${
+                              expressionData.drowsiness_warning ? "bg-red-500" : "bg-cyan-500"
+                            }`}
+                            style={{ width: `${expressionData.fatigue_score || 10}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
-                    {expressionData.drowsiness_warning ? (
-                      <span className="rounded-lg bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700 animate-pulse">
-                        Fatigue Alert
-                      </span>
-                    ) : (
-                      <span className="rounded-lg bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">
-                        Calibrated
-                      </span>
+
+                    {/* Mini Emotion Probability Spectrum */}
+                    {expressionData.emotion_scores && (
+                      <div className="pt-2 border-t border-slate-100">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                          Emotion Spectrum
+                        </p>
+                        <div className="grid grid-cols-4 gap-1.5 text-center">
+                          {["happy", "neutral", "surprise", "angry"].map((em) => (
+                            <div key={em} className="rounded-xl bg-slate-50 p-1.5 border border-slate-100">
+                              <p className="text-[10px] uppercase font-bold text-slate-500">{em}</p>
+                              <p className="text-xs font-black text-slate-800">
+                                {expressionData.emotion_scores[em] || 0}%
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-
-                  {/* Dynamic Metric Bars */}
-                  <div className="space-y-2.5 pt-1">
-                    <div>
-                      <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
-                        <span className="flex items-center gap-1">
-                          <HeartPulse size={12} className="text-emerald-500" /> Focus & Engagement
-                        </span>
-                        <span>{expressionData.engagement_score || 85}%</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                          style={{ width: `${expressionData.engagement_score || 85}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
-                        <span className="flex items-center gap-1">
-                          <Flame size={12} className="text-amber-500" /> Muscle Exertion / Tension
-                        </span>
-                        <span>{expressionData.tension_score || 15}%</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-amber-500 transition-all duration-300"
-                          style={{ width: `${expressionData.tension_score || 15}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
-                        <span className="flex items-center gap-1">
-                          <Eye size={12} className="text-cyan-500" /> Fatigue & Drowsiness Index
-                        </span>
-                        <span className={expressionData.drowsiness_warning ? "text-red-600 font-black" : ""}>
-                          {expressionData.fatigue_score || 10}%
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-300 ${
-                            expressionData.drowsiness_warning ? "bg-red-500" : "bg-cyan-500"
-                          }`}
-                          style={{ width: `${expressionData.fatigue_score || 10}%` }}
-                        />
-                      </div>
-                    </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
+                    <p className="text-xs text-slate-400 font-medium">
+                      Facial reaction AI is paused. Click Active above to resume mood tracking.
+                    </p>
                   </div>
-
-                  {/* Mini Emotion Probability Spectrum */}
-                  {expressionData.emotion_scores && (
-                    <div className="pt-2 border-t border-slate-100">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                        Emotion Spectrum
-                      </p>
-                      <div className="grid grid-cols-4 gap-1.5 text-center">
-                        {["happy", "neutral", "surprise", "angry"].map((em) => (
-                          <div key={em} className="rounded-xl bg-slate-50 p-1.5 border border-slate-100">
-                            <p className="text-[10px] uppercase font-bold text-slate-500">{em}</p>
-                            <p className="text-xs font-black text-slate-800">
-                              {expressionData.emotion_scores[em] || 0}%
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
-                  <p className="text-xs text-slate-400 font-medium">
-                    Facial expression AI is paused. Click Active above to resume mood tracking.
-                  </p>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Live Feedback */}
             <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -1395,7 +1755,7 @@ const PoseAnalysis = () => {
                   <div>
                     <h3 className="font-bold text-sm text-slate-900">Live Feedback</h3>
                     <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
-                      Posture Analysis
+                      {selectedExercise === "reaction" ? "Reaction AI" : "Posture Analysis"}
                     </p>
                   </div>
                 </div>
@@ -1432,13 +1792,31 @@ const PoseAnalysis = () => {
               </div>
 
               <div className="space-y-3.5">
-                <Metric label="Posture Accuracy" value={`${accuracy}%`} percentage={accuracy} />
-                <Metric label="Repetitions" value={reps} percentage={Math.min(reps * 10, 100)} />
-                <Metric
-                  label="Session Time"
-                  value={formatTime(elapsedTime)}
-                  percentage={Math.min(elapsedTime, 100)}
-                />
+                {selectedExercise === "reaction" ? (
+                  <>
+                    <Metric label="Engagement Index" value={`${accuracy}%`} percentage={accuracy} />
+                    <Metric
+                      label="Dominant Reaction"
+                      value={expressionData.dominant_emotion || "Focused"}
+                      percentage={expressionData.confidence || 80}
+                    />
+                    <Metric
+                      label="Session Time"
+                      value={formatTime(elapsedTime)}
+                      percentage={Math.min(elapsedTime, 100)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Metric label="Posture Accuracy" value={`${accuracy}%`} percentage={accuracy} />
+                    <Metric label="Repetitions" value={reps} percentage={Math.min(reps * 10, 100)} />
+                    <Metric
+                      label="Session Time"
+                      value={formatTime(elapsedTime)}
+                      percentage={Math.min(elapsedTime, 100)}
+                    />
+                  </>
+                )}
               </div>
             </div>
 
@@ -1461,81 +1839,131 @@ const PoseAnalysis = () => {
             SESSION SUMMARY MODAL / REPORT
         ==================================================== */}
         {sessionResult && (
-          <section className="mt-8 overflow-hidden rounded-[28px] border border-cyan-200 bg-white p-6 shadow-xl backdrop-blur-xl">
-            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <section className="mt-8 overflow-hidden rounded-[32px] border border-cyan-200/80 bg-gradient-to-b from-white via-slate-50/60 to-white p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative">
+            <div className="absolute -top-16 -right-16 h-40 w-40 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
+
+            {/* Top Bar */}
+            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between border-b border-slate-100 pb-6">
               <div>
-                <div className="mb-2 flex items-center gap-2 text-cyan-600">
-                  <CheckCircle2 size={19} />
-                  <span className="text-xs font-bold uppercase tracking-wider">
-                    Session Complete
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                    <CheckCircle2 size={14} className="text-emerald-600" />
+                    Session Verified
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-cyan-50 border border-cyan-200 px-2.5 py-1 text-xs font-bold text-cyan-700">
+                    <Sparkles size={13} className="text-cyan-600" />
+                    AI Biomechanics Audit
                   </span>
                 </div>
 
-                <h2 className="text-2xl font-black text-slate-900">
-                  {exercises.find((item) => item.id === sessionResult.exercise)?.name || "Exercise"}{" "}
-                  Analysis
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  {exercises.find((item) => item.id === sessionResult.exercise)?.name || "Exercise"} Analysis
                 </h2>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Your calibrated movement analysis session has been recorded.
+                <p className="mt-1 text-xs sm:text-sm text-slate-500">
+                  Comprehensive real-time kinetic telemetry recorded and parsed by the Neural AI Engine.
                 </p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
-                <SummaryStat label="Accuracy" value={`${sessionResult.accuracy || 0}%`} />
-                <SummaryStat label="Reps" value={sessionResult.reps || 0} />
+                <SummaryStat
+                  label={sessionResult.exercise === "reaction" ? "Engagement" : "Accuracy"}
+                  value={`${sessionResult.accuracy || 0}%`}
+                />
+                <SummaryStat
+                  label={sessionResult.exercise === "reaction" ? "Reaction" : "Reps"}
+                  value={
+                    sessionResult.exercise === "reaction"
+                      ? sessionResult.expression_summary?.dominant_mood || "Focused"
+                      : sessionResult.reps || 0
+                  }
+                />
                 <SummaryStat label="Duration" value={formatTime(sessionResult.duration || 0)} />
               </div>
             </div>
 
-            {/* AI Posture Report */}
+            {/* AI Posture & Biomechanics Report */}
             {sessionResult.ai_report ? (
-              <div className="mt-6 space-y-4 rounded-2xl border border-slate-100 bg-slate-50 p-5">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">
-                      {sessionResult.ai_report.headline || "AI Posture Report"}
-                    </h3>
-                    <p className="text-xs text-slate-500 font-medium">
-                      {sessionResult.ai_report.score_text || "Performance Grade"}
-                    </p>
+              <div className="mt-6 space-y-5">
+                {/* Hero Grade & Diagnostic Headline Card */}
+                <div className="rounded-[24px] border border-cyan-200 bg-gradient-to-r from-cyan-950 via-slate-900 to-slate-950 p-5 sm:p-6 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-5 relative overflow-hidden">
+                  <div className="absolute -right-8 -bottom-8 h-32 w-32 rounded-full bg-cyan-500/20 blur-2xl pointer-events-none" />
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="relative flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 via-cyan-600 to-blue-700 text-white font-black text-2xl sm:text-3xl shadow-lg ring-4 ring-cyan-400/30">
+                      {sessionResult.ai_report.form_grade || (sessionResult.accuracy >= 80 ? "A" : sessionResult.accuracy >= 60 ? "B" : "C")}
+                    </div>
+                    <div>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-cyan-300 mb-1">
+                        <Award size={13} /> {sessionResult.ai_report.score_text || "Biomechanical Assessment"}
+                      </span>
+                      <h3 className="text-lg sm:text-xl font-black text-white tracking-tight leading-tight">
+                        {sessionResult.ai_report.headline || "AI Posture Performance Diagnostic"}
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-300 line-clamp-2">
+                        {sessionResult.ai_report.overview}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
-                    <Award size={20} />
-                  </div>
+
+                  <button
+                    onClick={() => speakReport(sessionResult.ai_report)}
+                    className={`shrink-0 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition shadow-md ${
+                      isSpeakingReport
+                        ? "bg-rose-500 text-white hover:bg-rose-600"
+                        : "bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+                    }`}
+                  >
+                    <Volume2 size={16} className={isSpeakingReport ? "animate-pulse" : ""} />
+                    {isSpeakingReport ? "Stop Audio" : "Listen to AI Report"}
+                  </button>
                 </div>
 
-                <p className="text-xs leading-relaxed text-slate-700">
-                  {sessionResult.ai_report.overview}
-                </p>
+                {/* Synthesis Overview Card */}
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs">
+                  <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider mb-2">
+                    <Brain size={16} className="text-cyan-600" />
+                    Kinetic Chain & Movement Consistency
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                    {sessionResult.ai_report.overview}
+                  </p>
+                </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  {sessionResult.ai_report.key_strengths && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5">
-                      <p className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5 mb-2">
-                        <CheckCircle2 size={14} /> Key Strengths
-                      </p>
-                      <ul className="space-y-1 text-xs text-slate-700">
+                {/* Dual Column: Strengths & Corrections */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {sessionResult.ai_report.key_strengths && sessionResult.ai_report.key_strengths.length > 0 && (
+                    <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/70 to-emerald-100/30 p-4 sm:p-5 shadow-xs">
+                      <div className="flex items-center gap-2 text-emerald-900 font-black text-xs uppercase tracking-wider mb-3">
+                        <CheckCircle2 size={16} className="text-emerald-600" />
+                        Verified Kinetic Strengths
+                      </div>
+                      <ul className="space-y-2">
                         {sessionResult.ai_report.key_strengths.map((str, idx) => (
-                          <li key={idx} className="flex items-start gap-1.5">
-                            <span className="text-emerald-600 font-bold">•</span>
-                            <span>{str}</span>
+                          <li key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-800 font-medium">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200/60 text-emerald-800 text-[10px] font-bold">
+                              ✓
+                            </span>
+                            <span className="leading-snug">{str}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  {sessionResult.ai_report.areas_for_improvement && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
-                      <p className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5 mb-2">
-                        <Target size={14} /> Areas for Improvement
-                      </p>
-                      <ul className="space-y-1 text-xs text-slate-700">
+                  {sessionResult.ai_report.areas_for_improvement && sessionResult.ai_report.areas_for_improvement.length > 0 && (
+                    <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/70 to-amber-100/30 p-4 sm:p-5 shadow-xs">
+                      <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase tracking-wider mb-3">
+                        <Target size={16} className="text-amber-600" />
+                        Biomechanical Adjustments
+                      </div>
+                      <ul className="space-y-2">
                         {sessionResult.ai_report.areas_for_improvement.map((imp, idx) => (
-                          <li key={idx} className="flex items-start gap-1.5">
-                            <span className="text-amber-600 font-bold">•</span>
-                            <span>{imp}</span>
+                          <li key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-800 font-medium">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200/60 text-amber-800 text-[10px] font-bold">
+                              !
+                            </span>
+                            <span className="leading-snug">{imp}</span>
                           </li>
                         ))}
                       </ul>
@@ -1543,28 +1971,37 @@ const PoseAnalysis = () => {
                   )}
                 </div>
 
-                {sessionResult.ai_report.safety_note && (
-                  <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50/70 p-3 text-xs text-slate-700">
-                    <ShieldCheck size={16} className="mt-0.5 shrink-0 text-blue-600" />
-                    <span>
-                      <strong>Safety Note:</strong> {sessionResult.ai_report.safety_note}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ) : sessionResult.feedback ? (
-              <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  AI Feedback Summary
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-700 whitespace-pre-line">
-                  {sessionResult.feedback}
-                </p>
+                {/* Clinical Safety & Recovery Protocol Row */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {sessionResult.ai_report.safety_note && (
+                    <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/70 to-cyan-50/40 p-4 text-xs sm:text-sm text-slate-700 shadow-xs flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                        <ShieldCheck size={18} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 mb-0.5">Joint Safety & Ergonomics</p>
+                        <p className="leading-relaxed text-slate-600">{sessionResult.ai_report.safety_note}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {sessionResult.ai_report.recovery_recommendation && (
+                    <div className="rounded-2xl border border-purple-200/80 bg-gradient-to-br from-purple-50/70 to-indigo-50/40 p-4 text-xs sm:text-sm text-slate-700 shadow-xs flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+                        <Activity size={18} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 mb-0.5">Targeted Cooldown Protocol</p>
+                        <p className="leading-relaxed text-slate-600">{sessionResult.ai_report.recovery_recommendation}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : null}
 
-            {/* Facial Expression, Mood & Fatigue Summary Card */}
-            {sessionResult.expression_summary && (
+            {/* Facial Expression, Mood & Fatigue Summary Card (ONLY IN REACTION MODE) */}
+            {sessionResult.exercise === "reaction" && sessionResult.expression_summary && (
               <div className="mt-6 rounded-2xl border border-cyan-200/80 bg-gradient-to-r from-cyan-50/70 via-white to-blue-50/70 p-4 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-cyan-100 pb-3">
                   <div className="flex items-center gap-2.5">
@@ -1654,6 +2091,125 @@ const PoseAnalysis = () => {
             />
           </div>
         </section>
+        {/* ====================================================
+            EXERCISE / YOGA FORM INFORMATION MODAL
+        ==================================================== */}
+        {showInfoModal && currentExercise && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm animate-in fade-in">
+            <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-[28px] border border-cyan-200 bg-white p-6 sm:p-7 shadow-2xl relative">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600 ring-1 ring-cyan-200 shadow-sm">
+                    {currentExercise.icon}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-black text-slate-900">{currentExercise.name}</h3>
+                      <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-800">
+                        {currentExercise.category}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {currentExercise.difficulty || "All Levels"} • AI Kinematic Analysis Guide
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowInfoModal(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="mt-5 space-y-4">
+                {/* Description */}
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                    {currentExercise.description}
+                  </p>
+                </div>
+
+                {/* Target Muscles / Anatomy */}
+                {currentExercise.targetMuscles && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                      <Target size={14} className="text-cyan-600" /> Target Kinetic Chain & Muscles
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {currentExercise.targetMuscles.map((muscle, idx) => (
+                        <span key={idx} className="rounded-lg bg-cyan-50 border border-cyan-100 px-2.5 py-1 text-xs font-bold text-cyan-800">
+                          {muscle}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Biomechanical Execution Steps */}
+                {currentExercise.steps && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                      <CheckCircle2 size={14} className="text-emerald-600" /> Proper Biomechanical Execution
+                    </p>
+                    <div className="space-y-2">
+                      {currentExercise.steps.map((step, idx) => (
+                        <div key={idx} className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-white p-2.5 shadow-2xs">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-600 text-[10px] font-bold text-white">
+                            {idx + 1}
+                          </span>
+                          <p className="text-xs text-slate-700 leading-snug">{step}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Common Mistakes Monitored by AI */}
+                {currentExercise.commonMistakes && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-2 flex items-center gap-1.5">
+                      <AlertTriangle size={14} className="text-amber-600" /> Common Posture Mistakes Detected by AI
+                    </p>
+                    <ul className="space-y-1.5 text-xs text-slate-700">
+                      {currentExercise.commonMistakes.map((mistake, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-amber-600 font-bold">•</span>
+                          <span>{mistake}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Breathing Guidance */}
+                {currentExercise.breathing && (
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3.5 flex items-start gap-2.5">
+                    <HeartPulse size={16} className="text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-blue-950">Breathing & Cadence Guidance</p>
+                      <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{currentExercise.breathing}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="mt-6 border-t border-slate-100 pt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowInfoModal(false)}
+                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition shadow-sm"
+                >
+                  Got It
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
