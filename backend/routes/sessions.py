@@ -21,6 +21,7 @@ EXERCISE_LABELS = {
     'bicep_curl':     'Bicep Curl',
     'shoulder_press': 'Shoulder Press',
     'suryanamaskar':  'Surya Namaskar',
+    'surya_namaskar': 'Surya Namaskar',
     'tree_pose':      'Tree Pose',
     'tadasana':       'Tadasana',
     'warrior_two':    'Warrior II',
@@ -31,6 +32,8 @@ EXERCISE_LABELS = {
     'desk_posture':   'Desk Posture',
 }
 
+
+import json
 
 def _serialize(s: MovementSession) -> dict:
     """Convert a MovementSession ORM object to the shape expected by the UI."""
@@ -43,6 +46,17 @@ def _serialize(s: MovementSession) -> dict:
     # Date: prefer started_at, fall back to ended_at, then None
     date_val = s.started_at or s.ended_at
 
+    raw_summary = s.ai_summary or ''
+    ai_report = None
+    ai_summary_text = raw_summary
+    if raw_summary.strip().startswith('{') and raw_summary.strip().endswith('}'):
+        try:
+            ai_report = json.loads(raw_summary)
+            if isinstance(ai_report, dict):
+                ai_summary_text = ai_report.get('formatted_text') or ai_report.get('overview') or raw_summary
+        except Exception:
+            ai_report = None
+
     return {
         'id':            s.id,
         'pose':          EXERCISE_LABELS.get(s.exercise_type, s.exercise_type.replace('_', ' ').title()),
@@ -54,7 +68,8 @@ def _serialize(s: MovementSession) -> dict:
         'duration':      duration_seconds,
         'status':        'Completed',
         'date':          date_val.isoformat() if date_val else None,
-        'ai_summary':    s.ai_summary or '',
+        'ai_summary':    ai_summary_text,
+        'ai_report':     ai_report,
     }
 
 

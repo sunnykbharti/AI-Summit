@@ -9,12 +9,13 @@ from models import db, MovementSession, MovementRepLog
 from analyzers.squat_analyzer import SquatAnalyzer
 from analyzers.pushup_analyzer import PushupAnalyzer
 from analyzers.yoga_pose_analyzer import YogaAnalyzer
-from analyzers.surya_namaskar_analyzer import SuryaAnalyzer
+from analyzers.surya_namaskar_analyzer import SuryaAnalyzer, SuryaNamaskarAnalyzer
 from analyzers.lunge_analyzer import LungeAnalyzer
 from analyzers.plank_analyzer import PlankAnalyzer
 from analyzers.posture_analyzer import PostureAnalyzer
 from analyzers.desk_posture_analyzer import DeskPostureAnalyzer
 from analyzers.expression_analyzer import FacialExpressionAnalyzer
+from analyzers.reaction_analyzer import ReactionAnalyzer
 from ai_summarizer import ai_summarizer
 
 from analyzers.bodymap import BodyMapCalibrator, draw_calibration_hud, BodyMode, BodyMap
@@ -26,6 +27,7 @@ ANALYZERS = {
     "squat": lambda: SquatAnalyzer(),
     "pushup": lambda: PushupAnalyzer(),
     "suryanamaskar": lambda: SuryaAnalyzer(),
+    "surya_namaskar": lambda: SuryaAnalyzer(),
     "tree_pose": lambda: YogaAnalyzer(target_pose="tree_pose"),
     "tadasana": lambda: YogaAnalyzer(target_pose="tadasana"),
     "warrior_two": lambda: YogaAnalyzer(target_pose="warrior_two"),
@@ -36,6 +38,7 @@ ANALYZERS = {
     "plank": lambda: PlankAnalyzer(),
     "posture": lambda: PostureAnalyzer(),
     "desk_posture": lambda: DeskPostureAnalyzer(),
+    "reaction": lambda: ReactionAnalyzer(),
 }
 
 _active = {
@@ -195,8 +198,9 @@ def analyze_frame():
 
     data = request.get_json(silent=True) or {}
 
-    if not _active["running"] or _active["analyzer"] is None:
-        exercise_type = data.get("exercise", "squat")
+    req_exercise = data.get("exercise")
+    if not _active["running"] or _active["analyzer"] is None or (req_exercise and req_exercise != _active.get("exercise")):
+        exercise_type = req_exercise or "squat"
         if exercise_type not in ANALYZERS:
             exercise_type = "squat"
         _active["exercise"] = exercise_type
@@ -204,6 +208,7 @@ def analyze_frame():
         _active["running"] = True
         _active["frame_count"] = 0
         _active["last_ai_insight"] = None
+        _active["expression_history"] = []
 
     image_data_url = data.get("image")
     if not image_data_url:
@@ -223,9 +228,28 @@ def analyze_frame():
     output, metrics = _active["analyzer"].process_frame(frame)
     _active["frame_count"] += 1
 
-    # Process Real-time Facial Expression, Mood & Fatigue Analysis
-    try:
-        expression_data = _expression_analyzer.process_frame(frame)
+    # Process Real-time Facial Expression, Mood & Fatigue Analysis ONLY for reaction analyzer
+    expression_data = None
+    if _active.get("exercise") == "reaction":
+        if isinstance(metrics, dict) and metrics.get("is_reaction"):
+            expression_data = {
+                "face_detected": metrics.get("face_detected", False),
+                "dominant_emotion": metrics.get("dominant_emotion", "neutral"),
+                "confidence": metrics.get("confidence", 80.0),
+                "fatigue_score": metrics.get("fatigue_score", 10),
+                "tension_score": metrics.get("tension_score", 15),
+                "engagement_score": metrics.get("engagement_score", 85),
+                "drowsiness_warning": metrics.get("drowsiness_warning", False),
+                "state_label": metrics.get("state_label", "Focused"),
+                "emoji": metrics.get("emoji", "🙂"),
+                "emotion_scores": metrics.get("emotion_scores", {}),
+            }
+        else:
+            try:
+                expression_data = _expression_analyzer.process_frame(frame)
+            except Exception:
+                expression_data = _expression_analyzer._default_metrics(face_detected=False)
+
         if expression_data and expression_data.get("face_detected"):
             _active["expression_history"].append({
                 "emotion": expression_data.get("dominant_emotion"),
@@ -233,8 +257,6 @@ def analyze_frame():
                 "tension": expression_data.get("tension_score", 0),
                 "drowsy": expression_data.get("drowsiness_warning", False),
             })
-    except Exception as e:
-        expression_data = _expression_analyzer._default_metrics(face_detected=False)
 
     ok, buffer = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, 70])
     if not ok:
@@ -243,7 +265,7 @@ def analyze_frame():
     annotated_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode("utf-8")
 
     # Generate or update Live AI Feed Insight (throttled every 15 frames or issue change)
-    rep_log = getattr(_active["analyzer"], "rep_log", [])
+    rep_log = list(getattr(_active["analyzer"], "rep_log", []))
     has_issues = bool(metrics.get("issues"))
     last_had_issues = _active.get("last_had_issues", False)
     _active["last_had_issues"] = has_issues
@@ -309,33 +331,36 @@ def stop_exercise():
 
     summary = analyzer.session_summary()
 
-    # Calculate Facial Expression & Mood Balance summary for this session
-    expr_history = _active.get("expression_history", [])
-    if expr_history:
-        emotions = [h["emotion"] for h in expr_history if h.get("emotion")]
-        dominant_mood = max(set(emotions), key=emotions.count) if emotions else "neutral"
-        avg_fatigue = int(np.mean([h.get("fatigue", 0) for h in expr_history]))
-        avg_tension = int(np.mean([h.get("tension", 0) for h in expr_history]))
-        drowsy_count = sum(1 for h in expr_history if h.get("drowsy"))
-        expression_summary = {
-            "dominant_mood": dominant_mood,
-            "avg_fatigue": avg_fatigue,
-            "avg_tension": avg_tension,
-            "drowsy_warnings": drowsy_count,
-            "summary_text": f"Dominant Mood: {dominant_mood.capitalize()} · Exertion: {avg_tension}% · Fatigue: {avg_fatigue}%",
-        }
-    else:
-        expression_summary = {
-            "dominant_mood": "focused",
-            "avg_fatigue": 15,
-            "avg_tension": 20,
-            "drowsy_warnings": 0,
-            "summary_text": "Good form & sustained focus throughout session.",
-        }
+    # Calculate Facial Expression & Mood Balance summary ONLY when exercise is "reaction"
+    expression_summary = None
+    if exercise_name == "reaction":
+        expr_history = _active.get("expression_history", [])
+        if expr_history:
+            emotions = [h["emotion"] for h in expr_history if h.get("emotion")]
+            dominant_mood = max(set(emotions), key=emotions.count) if emotions else "neutral"
+            avg_fatigue = int(np.mean([h.get("fatigue", 0) for h in expr_history]))
+            avg_tension = int(np.mean([h.get("tension", 0) for h in expr_history]))
+            drowsy_count = sum(1 for h in expr_history if h.get("drowsy"))
+            expression_summary = {
+                "dominant_mood": dominant_mood,
+                "avg_fatigue": avg_fatigue,
+                "avg_tension": avg_tension,
+                "drowsy_warnings": drowsy_count,
+                "summary_text": f"Dominant Mood: {dominant_mood.capitalize()} · Exertion: {avg_tension}% · Fatigue: {avg_fatigue}%",
+            }
+        else:
+            expression_summary = {
+                "dominant_mood": "focused",
+                "avg_fatigue": 15,
+                "avg_tension": 20,
+                "drowsy_warnings": 0,
+                "summary_text": "Good focus & engagement throughout reaction session.",
+            }
 
     # Generate full AI Session Report using AISummarizer
     ai_report = ai_summarizer.generate_session_summary(exercise_name, summary)
-    ai_summary_text = ai_report.get("formatted_text") or ai_report.get("overview") or _build_text_summary(summary)
+    ai_summary_payload = json.dumps(ai_report, ensure_ascii=False)
+    ai_summary_text = ai_report.get("formatted_text") or ai_report.get("overview") or ""
 
     # Save to database if user is logged in or for global history
     session_id = None
@@ -351,7 +376,7 @@ def stop_exercise():
             correct_reps=summary["correct_reps"],
             incorrect_reps=summary["incorrect_reps"],
             accuracy=summary["accuracy"],
-            ai_summary=ai_summary_text,
+            ai_summary=ai_summary_payload,
         )
         db.session.add(session)
         db.session.flush()
@@ -382,14 +407,6 @@ def stop_exercise():
         "body_map": _active.get("body_map"),
         "expression_summary": expression_summary,
     })
-
-
-def _build_text_summary(summary):
-    errors_flat = [e for rep in summary.get("rep_log", []) for e in rep.get("errors", [])]
-    if not errors_flat:
-        return f"शानदार सत्र! {summary['correct_reps']} रेप्स सही फॉर्म के साथ पूरे किए।"
-    common = max(set(errors_flat), key=errors_flat.count)
-    return f"{summary['correct_reps']}/{summary['total_reps']} सही। बार-बार आने वाली समस्या: {common.replace('_', ' ')}।"
 
 
 from datetime import timedelta
