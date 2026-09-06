@@ -42,7 +42,7 @@ db.init_app(app)
 
 jwt   = JWTManager(app)
 cache = Cache(app)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # ── database init + auto-seed ────────────────────────────────────────────────
 with app.app_context():
@@ -103,11 +103,39 @@ def serve_spa(path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, 'index.html')
 
-# ── health check ─────────────────────────────────────────────────────────────
+# ── health check & direct aliases ───────────────────────────────────────────
 @app.route('/api/health')
 def health():
     return jsonify({"status": "ok", "app": "PostureTrek API"})
 
+@app.route('/leaderboard', methods=['GET'])
+@app.route('/api/leaderboard', methods=['GET'])
+def direct_leaderboard():
+    from routes.movement import get_leaderboard
+    return get_leaderboard()
+
 # ── run ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    port = int(os.getenv('FLASK_PORT', 5000))
+    debug = os.getenv('FLASK_DEBUG', 'True').lower() in ('true', '1', 't')
+
+    import socket
+    local_ip = "127.0.0.1"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+
+    print("\n" + "=" * 55)
+    print(" 🚀 PostureTrek Backend Server")
+    print("=" * 55)
+    print(f" Local:   http://127.0.0.1:{port}")
+    print(f" Network: http://{local_ip}:{port} (accessible on local WiFi)")
+    print(f" Binding: http://{host}:{port}")
+    print("=" * 55 + "\n")
+
+    app.run(host=host, port=port, debug=debug)
