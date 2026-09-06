@@ -433,7 +433,7 @@ while True:
     frame = cv2.flip(frame, 1)
 
     results = model(frame, verbose=False)
-    output = results[0].plot()
+    output = results[0].plot(labels=False, conf=False)
 
     feedback = "No person detected"
     correct = False

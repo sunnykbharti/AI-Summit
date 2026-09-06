@@ -20,7 +20,7 @@ while True:
         print("First keypoint:", keypoints[0])
         print("First keypoint confidence:", confidence[0])
 
-    output = results[0].plot()
+    output = results[0].plot(labels=False, conf=False)
     cv2.imshow("Pose Detection", output)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):

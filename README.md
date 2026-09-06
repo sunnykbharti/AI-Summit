@@ -151,17 +151,19 @@ AI SUMMIT SHOWCASE/
 │   │   ├── reports.py             # Email report dispatch & frequency preferences
 │   │   └── profile.py             # Athlete biometric profile & goal updates
 │   │
-│   ├── analyzers/                 # Biomechanical Kinematic Analyzers
+│   ├── analyzers/                 # Biomechanical Kinematic Analyzers (Physical Movements)
 │   │   ├── bodymap.py             # 3-Second BodyMap calibration HUD & anatomical scaling
 │   │   ├── desk_posture_analyzer.py # Study, interview, text-neck & ergonomics monitor
-│   │   ├── expression_analyzer.py # 468-mesh facial fatigue, mood & EAR tracker
 │   │   ├── squat_analyzer.py      # Hip hinge, knee flexion & valgus analysis
 │   │   ├── pushup_analyzer.py     # Chest depth, elbow angle & plank rigidity
 │   │   ├── lunge_analyzer.py      # Knee-over-toe & unilateral leg stability
 │   │   ├── plank_analyzer.py      # Core anti-extension & hip displacement hold timer
 │   │   ├── surya_namaskar_analyzer.py # 12-pose Sun Salutation sequence recognition
-│   │   ├── yoga_pose_analyzer.py  # Tree pose, Warrior II, Tadasana, Cobra, Downward Dog
-│   │   └── reaction_analyzer.py   # Integrated cognitive reaction analyzer
+│   │   └── yoga_pose_analyzer.py  # Tree pose, Warrior II, Tadasana, Cobra, Downward Dog
+│   │
+│   ├── reaction/                  # Dedicated Facial Reaction, Mood & Fatigue Engine
+│   │   ├── reaction_analyzer.py   # Reaction telemetry, mood, engagement & tension analyzer
+│   │   └── expression_analyzer.py # 468-mesh facial fatigue, emotion & drowsiness tracker
 │   │
 │   └── instance/                  # SQLite runtime data
 │       └── postretrek.sqlite

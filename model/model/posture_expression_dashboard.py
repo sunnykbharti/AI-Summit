@@ -661,7 +661,7 @@ while True:
         verbose=False,
     )
 
-    camera_view_image = pose_results[0].plot()
+    camera_view_image = pose_results[0].plot(labels=False, conf=False)
     posture = None
 
     if len(pose_results[0].keypoints.data) > 0:

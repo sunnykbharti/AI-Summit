@@ -453,7 +453,7 @@ while True:
     results = model(frame, verbose=False)
 
     # Draw skeleton and bounding box
-    output = results[0].plot()
+    output = results[0].plot(labels=False, conf=False)
 
     feedback = "No person detected"
     detected_pose = None
