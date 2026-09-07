@@ -21,6 +21,7 @@ const PREFETCH_MAP = {
   "/dashboard": ["/dashboard/summary", "/dashboard/recent_sessions", "/dashboard/weekly"],
   "/sessions": ["/sessions"],
   "/leaderboard": ["/pose/leaderboard?period=all_time"],
+  "/profile": ["/profile"],
 };
 
 const Navbar = () => {
@@ -40,6 +41,12 @@ const Navbar = () => {
     const urls = PREFETCH_MAP[path];
     if (urls) {
       urls.forEach((url) => prefetch(url));
+    }
+    // Prefetch 3D Bot chunk on hover for instant transition
+    if (path === "/pose-analysis" || path === "/reaction-analysis") {
+      try {
+        import("../components/Pose3DBotViewer");
+      } catch (_) {}
     }
   };
 

@@ -214,6 +214,7 @@ export default function SuryaStepViewer({
   poseQuality = 0,
   voicePrompt = "",
   className = "",
+  onSkipStep = null,
 }) {
   const [selectedStep, setSelectedStep] = useState(activeStepNumber || 1);
   const [autoSync, setAutoSync] = useState(true);
@@ -417,17 +418,29 @@ export default function SuryaStepViewer({
 
       {/* Footer Navigation Bar & 12-Step Strip */}
       <div className="shrink-0 border-t border-slate-100 bg-slate-50/90 p-2.5 sm:p-3 space-y-2">
-        {/* Next / Prev Controls */}
-        <div className="flex items-center justify-between gap-2">
+        {/* Next / Prev / Skip Controls */}
+        <div className="flex items-center justify-between gap-1.5">
           <button
             type="button"
             onClick={handlePrev}
-            className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs"
+            className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs"
             title="पिछला आसन"
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft size={14} />
             <span>पिछला</span>
           </button>
+
+          {onSkipStep && (
+            <button
+              type="button"
+              onClick={onSkipStep}
+              className="flex items-center gap-1 rounded-xl border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-black text-amber-900 hover:bg-amber-100 transition shadow-2xs"
+              title="वर्तमान आसन को स्किप करें और तुरंत अगले आसन पर जाएं"
+            >
+              <span>स्किप आसन</span>
+              <ChevronRight size={13} className="text-amber-700" />
+            </button>
+          )}
 
           <span className="font-mono text-xs font-black text-slate-800">
             {selectedStep} / 12
@@ -436,11 +449,11 @@ export default function SuryaStepViewer({
           <button
             type="button"
             onClick={handleNext}
-            className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs"
+            className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs"
             title="अगला आसन"
           >
             <span>अगला</span>
-            <ChevronRight size={15} />
+            <ChevronRight size={14} />
           </button>
         </div>
 

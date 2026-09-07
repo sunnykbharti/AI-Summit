@@ -1038,6 +1038,29 @@ class SuryaNamaskarAnalyzer:
             "completed_steps": len(self.step_logs),
         }
 
+    def skip_step(self) -> Dict[str, Any]:
+        """Manually or automatically skips current step and advances to the next step in Surya Namaskar sequence."""
+        now = time.time()
+        skipped_step = self.expected_step
+        self.step_logs.append(StepLog(skipped_step.value, now, 60.0, ["Step skipped by user"]))
+        self.total_pose_quality.append(60.0)
+
+        if skipped_step == SuryaStep.PRANAMASANA_END or self.expected_index >= len(SEQUENCE) - 1:
+            self.round_count += 1
+            self.expected_index = 0
+            self.last_entered_step = None
+            self.recent_candidates.clear()
+            voice_prompt = "Round पूरा हुआ! बहुत बढ़िया, अगला राउंड शुरू करें।"
+        else:
+            self.expected_index += 1
+            self.last_entered_step = None
+            self.recent_candidates.clear()
+            next_step = self.expected_step
+            voice_prompt = f"स्टेप स्किप किया गया। अगला आसन: {DISPLAY_NAMES.get(next_step, next_step.value)}"
+
+        self.last_voice_at = now
+        return self._response(None, 60.0, [], voice_prompt, accepted=True)
+
     def end_session_summary(self) -> Dict[str, Any]:
         average = float(np.mean(self.total_pose_quality)) if self.total_pose_quality else 0.0
         if average >= 90:
@@ -1172,6 +1195,19 @@ class SuryaAnalyzer:
         }
 
         return output_bgr, adapted_metrics
+
+    def skip_step(self) -> Dict[str, Any]:
+        """Skip step wrapper for SuryaAnalyzer."""
+        res = self.engine.skip_step()
+        self.rep_log.append({
+            "rep_number": len(self.engine.step_logs),
+            "step": res.get("expected_step", ""),
+            "correct": True,
+            "errors": ["Skipped by user"],
+            "min_angle": 60.0,
+        })
+        self._last_step_count = len(self.engine.step_logs)
+        return res
 
     def session_summary(self) -> Dict[str, Any]:
         """Summarize the entire session for database storage and AI reports."""

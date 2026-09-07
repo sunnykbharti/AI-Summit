@@ -24,7 +24,7 @@ import {
   Flame,
 } from "lucide-react";
 
-import api from "../api/Api";
+import api, { fetchProfileData } from "../api/Api";
 
 const CLEAN_DEFAULT_PROFILE = {
   name: "",
@@ -47,49 +47,55 @@ const CLEAN_DEFAULT_PROFILE = {
 const Profile = () => {
   const navigate = useNavigate();
 
-  const [formData, setFormData] = useState(CLEAN_DEFAULT_PROFILE);
+  const [formData, setFormData] = useState(() => {
+    try {
+      const stored = localStorage.getItem("posecare_user");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          ...CLEAN_DEFAULT_PROFILE,
+          name: parsed.name || "",
+          email: parsed.email || "",
+          phone: parsed.phone || "",
+          gender: parsed.gender || "male",
+          age: parsed.age ? String(parsed.age) : "",
+          height: parsed.height ? String(parsed.height) : "",
+          weight: parsed.weight ? String(parsed.weight) : "",
+          fitnessGoal: parsed.fitnessGoal || parsed.fitness_goal || "posture",
+          activityLevel: parsed.activityLevel || parsed.activity_level || "moderate",
+          experience: parsed.experience || "intermediate",
+          report_frequency: parsed.report_frequency || "daily",
+          email_reports_enabled: parsed.email_reports_enabled !== undefined ? parsed.email_reports_enabled : true,
+          total_sessions: parsed.total_sessions || 0,
+          total_reps: parsed.total_reps || 0,
+          avg_accuracy: parsed.avg_accuracy || 0,
+        };
+      }
+    } catch (_) {}
+    return CLEAN_DEFAULT_PROFILE;
+  });
+
   const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    try {
+      return !localStorage.getItem("posecare_user");
+    } catch {
+      return false;
+    }
+  });
   const [saving, setSaving] = useState(false);
   const [testReportLoading, setTestReportLoading] = useState(false);
   const [testReportMsg, setTestReportMsg] = useState("");
 
   // ============================================================
-  // GET REAL USER PROFILE FROM BACKEND
+  // GET REAL USER PROFILE FROM BACKEND (SWR CACHED - 0ms navigation)
   // ============================================================
 
   useEffect(() => {
     const fetchProfile = async () => {
-      setLoading(true);
       try {
-        // 1. Check cached session storage first for immediate paint
-        const storedUser = localStorage.getItem("posecare_user");
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            setFormData((prev) => ({
-              ...prev,
-              name: parsed.name || "",
-              email: parsed.email || "",
-              phone: parsed.phone || "",
-              gender: parsed.gender || "male",
-              age: parsed.age ? String(parsed.age) : "",
-              height: parsed.height ? String(parsed.height) : "",
-              weight: parsed.weight ? String(parsed.weight) : "",
-              fitnessGoal: parsed.fitnessGoal || parsed.fitness_goal || "posture",
-              activityLevel: parsed.activityLevel || parsed.activity_level || "moderate",
-              experience: parsed.experience || "intermediate",
-              report_frequency: parsed.report_frequency || "daily",
-              total_sessions: parsed.total_sessions || 0,
-              total_reps: parsed.total_reps || 0,
-              avg_accuracy: parsed.avg_accuracy || 0,
-            }));
-          } catch (_) {}
-        }
-
-        // 2. Fetch ground-truth user profile from database
-        const response = await api.get("/profile");
-        const u = response.data.user || response.data;
+        const responseData = await fetchProfileData();
+        const u = responseData?.user || responseData;
 
         if (u) {
           setFormData({
@@ -114,7 +120,7 @@ const Profile = () => {
           localStorage.setItem("posecare_user", JSON.stringify(u));
         }
       } catch (error) {
-        console.error("Failed to load user profile from DB:", error);
+        console.error("Failed to load user profile:", error);
       } finally {
         setLoading(false);
       }

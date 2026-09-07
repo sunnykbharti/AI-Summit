@@ -22,12 +22,15 @@ import {
   Minus,
   Play,
   RefreshCw,
+  Rotate3d,
   RotateCcw,
   Scan,
   ShieldAlert,
+  SkipForward,
   Smile,
   Sparkles,
   Target,
+  Timer,
   UserCheck,
   Volume2,
   VolumeX,
@@ -36,8 +39,25 @@ import {
 } from "lucide-react";
 
 import api, { invalidateCache } from "../api/Api";
-import SuryaStepViewer from "../components/SuryaStepViewer";
+import SuryaStepViewer, { SURYA_STEPS } from "../components/SuryaStepViewer";
 import ReactionViewer from "../components/ReactionViewer";
+
+// Code-split 3D WebGL Bot so Three.js is loaded asynchronously and doesn't block bundle or page navigation
+const Pose3DBotViewer = React.lazy(() => import("../components/Pose3DBotViewer"));
+
+const BotViewerSkeleton = () => (
+  <div className="w-full h-full min-h-[350px] flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-[#f8fafc] p-6 shadow-sm">
+    <div className="flex flex-col items-center gap-3">
+      <div className="relative flex items-center justify-center w-12 h-12 rounded-2xl bg-cyan-50 border border-cyan-200 text-cyan-600 shadow-sm">
+        <Rotate3d size={24} className="animate-spin text-cyan-600" style={{ animationDuration: "3s" }} />
+      </div>
+      <div className="text-center">
+        <div className="text-xs font-bold text-slate-800">3D AI Trainer Bot Loading</div>
+        <div className="text-[10px] text-slate-400 font-medium mt-0.5">Initializing biomechanical model...</div>
+      </div>
+    </div>
+  </div>
+);
 
 // Frame analysis intervals (ms)
 const ANALYSIS_INTERVAL_MS = 200;
@@ -167,9 +187,17 @@ const PoseAnalysis = ({ initialExercise }) => {
   const [instructionType, setInstructionType] = useState("info"); // "info" | "success" | "error"
   const [bodyStatus, setBodyStatus] = useState("तैयार (Ready)");
   
-  // Surya Namaskar active step tracking
+  // Surya Namaskar active step tracking & Auto-Advance Flow
   const [suryaStepNum, setSuryaStepNum] = useState(1);
   const [suryaPoseQuality, setSuryaPoseQuality] = useState(0);
+  const [suryaAutoSkipEnabled, setSuryaAutoSkipEnabled] = useState(false);
+  const [suryaAutoSkipSeconds, setSuryaAutoSkipSeconds] = useState(15);
+  const [suryaSecondsLeft, setSuryaSecondsLeft] = useState(15);
+  const [isSkippingStep, setIsSkippingStep] = useState(false);
+
+  // 3D AI Kinematic Trainer Bot State
+  const [show3DBot, setShow3DBot] = useState(true);
+  const [sideViewerTab, setSideViewerTab] = useState("3dbot"); // "3dbot" | "guide" | "reaction"
 
   // Post-workout pop-up modal state
   const [sessionResult, setSessionResult] = useState(null);
@@ -324,6 +352,75 @@ const PoseAnalysis = ({ initialExercise }) => {
       "कैमरे के सामने सही पोस्चर में सीधे खड़े रहें।";
     speakFeedback(textToSpeak);
   };
+
+  // ============================================================
+  // SURYA NAMASKAR STEP SKIPPING & AUTOMATIC NEXT ASANA
+  // ============================================================
+  const handleSkipSuryaStep = async () => {
+    if (isSkippingStep) return;
+    setIsSkippingStep(true);
+    try {
+      // 1. Instantly advance the step in the client state (0ms latency)
+      const nextStep = (suryaStepNum % 12) + 1;
+      setSuryaStepNum(nextStep);
+      setSuryaSecondsLeft(suryaAutoSkipSeconds);
+
+      const stepData = SURYA_STEPS.find((s) => s.stepNumber === nextStep);
+      const asanName = stepData ? `${stepData.name_hi}` : `स्टेप ${nextStep}`;
+      const skipPrompt = `स्टेप स्किप किया गया। अगला आसन: ${asanName}`;
+      setInstruction(skipPrompt);
+      setInstructionType("info");
+      speakFeedback(skipPrompt);
+
+      // 2. Synchronize with backend analyzer
+      const res = await api.post("/pose/surya/skip_step");
+      if (res.data?.current_step_number) {
+        setSuryaStepNum(res.data.current_step_number);
+        if (res.data.voice_prompt) {
+          setInstruction(res.data.voice_prompt);
+          speakFeedback(res.data.voice_prompt);
+        }
+      }
+    } catch (err) {
+      console.warn("Surya Namaskar skip step sync error:", err);
+    } finally {
+      setTimeout(() => setIsSkippingStep(false), 250);
+    }
+  };
+
+  // Auto-skip countdown timer: automatically moves on to the next asan when timer expires
+  useEffect(() => {
+    if (
+      selectedExercise !== "suryanamaskar" ||
+      !analysisRunning ||
+      !suryaAutoSkipEnabled
+    ) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setSuryaSecondsLeft((prev) => {
+        if (prev <= 1) {
+          handleSkipSuryaStep();
+          return suryaAutoSkipSeconds;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [
+    selectedExercise,
+    analysisRunning,
+    suryaAutoSkipEnabled,
+    suryaAutoSkipSeconds,
+    suryaStepNum,
+  ]);
+
+  // Reset timer counter on step change or duration change
+  useEffect(() => {
+    setSuryaSecondsLeft(suryaAutoSkipSeconds);
+  }, [suryaStepNum, suryaAutoSkipSeconds]);
 
   const speakReport = (report) => {
     if (!("speechSynthesis" in window) || !report) return;
@@ -1208,6 +1305,26 @@ const PoseAnalysis = ({ initialExercise }) => {
                       : "FOCUSED"}
                   </span>
                 </div>
+              ) : selectedExercise === "suryanamaskar" ? (
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <div className="flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-2.5 sm:px-3 py-1.5 shadow-2xs">
+                    <Sparkles size={14} className="text-amber-600" />
+                    <span className="text-xs font-black text-amber-900">
+                      चरण {suryaStepNum}/12
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSkipSuryaStep}
+                    disabled={isSkippingStep}
+                    className="flex items-center gap-1.5 rounded-xl border border-amber-400 bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 sm:px-3 py-1.5 text-xs font-black text-white shadow-sm hover:from-amber-600 hover:to-orange-600 active:scale-95 transition cursor-pointer"
+                    title="इस आसन को स्किप करें और तुरंत अगले आसन पर जाएं"
+                  >
+                    <SkipForward size={13} />
+                    <span>स्किप आसन</span>
+                  </button>
+                </div>
               ) : (
                 <div className="flex items-center gap-1.5 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-1.5 shadow-2xs">
                   <Activity size={14} className="text-cyan-700" />
@@ -1227,6 +1344,21 @@ const PoseAnalysis = ({ initialExercise }) => {
 
             {/* Right Controls */}
             <div className="flex items-center gap-2">
+              {/* 3D AI Trainer Bot Toggle */}
+              <button
+                type="button"
+                onClick={() => setShow3DBot(!show3DBot)}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-2xs ${
+                  show3DBot
+                    ? "bg-cyan-50 text-cyan-800 border border-cyan-300 ring-2 ring-cyan-200/60 hover:bg-cyan-100"
+                    : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
+                }`}
+                title={show3DBot ? "3D बॉट छिपाएं" : "3D AI बॉट चालू करें"}
+              >
+                <Rotate3d size={15} className={show3DBot ? "text-cyan-600 animate-pulse" : "text-slate-400"} />
+                <span className="hidden sm:inline">3D AI बॉट</span>
+              </button>
+
               {/* Voice Coach Toggle */}
               <button
                 type="button"
@@ -1422,27 +1554,190 @@ const PoseAnalysis = ({ initialExercise }) => {
               )}
             </div>
 
-            {/* Right: Beside the video feed - Surya Namaskar Step-by-Step Image Guide */}
-            {selectedExercise === "suryanamaskar" && (
-              <div className="w-full lg:w-[350px] xl:w-[390px] shrink-0 flex flex-col max-h-[44vh] lg:max-h-none overflow-hidden animate-in fade-in slide-in-from-right-3 duration-300">
-                <SuryaStepViewer
-                  activeStepNumber={suryaStepNum}
-                  detectedPoseName={bodyStatus}
-                  poseQuality={suryaPoseQuality || accuracy}
-                  voicePrompt={instruction}
-                  className="h-full"
-                />
-              </div>
-            )}
+            {/* Right: Beside the video feed - 3D AI Kinematic Trainer Bot & Multi-step viewers */}
+            {show3DBot && (
+              <div className="w-full lg:w-[360px] xl:w-[410px] shrink-0 flex flex-col max-h-[46vh] lg:max-h-none overflow-hidden animate-in fade-in slide-in-from-right-3 duration-300">
+                <React.Suspense fallback={<BotViewerSkeleton />}>
+                  {selectedExercise === "suryanamaskar" ? (
+                    <div className="flex flex-col h-full gap-2">
+                      {/* Surya Namaskar Flow Header: Step Name + Skip Step Button + Auto-Skip Timer */}
+                      <div className="flex flex-col gap-2 rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50/90 via-orange-50/60 to-amber-50/90 p-2.5 shadow-2xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-amber-500 font-mono text-xs font-black text-white shadow-2xs">
+                              {suryaStepNum}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">
+                                वर्तमान आसन (Step {suryaStepNum}/12)
+                              </p>
+                              <h4 className="text-xs font-black text-slate-900 truncate">
+                                {SURYA_STEPS[suryaStepNum - 1]?.name_hi || "प्रणामासन"}{" "}
+                                <span className="text-[10px] font-semibold text-slate-500 hidden sm:inline">
+                                  ({SURYA_STEPS[suryaStepNum - 1]?.name_en?.split(" ")[0] || "Prayer"})
+                                </span>
+                              </h4>
+                            </div>
+                          </div>
 
-            {/* Right: Beside the video feed - Reaction & Emotion Telemetry */}
-            {selectedExercise === "reaction" && (
-              <div className="w-full lg:w-[350px] xl:w-[390px] shrink-0 flex flex-col max-h-[44vh] lg:max-h-none overflow-hidden animate-in fade-in slide-in-from-right-3 duration-300">
-                <ReactionViewer
-                  expressionData={expressionData}
-                  voicePrompt={instruction}
-                  className="h-full"
-                />
+                          {/* Primary Skip Step Button */}
+                          <button
+                            type="button"
+                            onClick={handleSkipSuryaStep}
+                            disabled={isSkippingStep}
+                            className="group flex items-center gap-1.5 rounded-xl border border-amber-400 bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 text-xs font-black text-white shadow-sm hover:from-amber-600 hover:to-orange-600 active:scale-95 transition cursor-pointer"
+                            title="इस आसन को स्किप करें और तुरंत अगले आसन पर जाएं"
+                          >
+                            <span>स्किप आसन</span>
+                            <SkipForward size={14} className="transition-transform group-hover:translate-x-0.5" />
+                          </button>
+                        </div>
+
+                        {/* Auto-Skip Timer Bar */}
+                        <div className="flex items-center justify-between border-t border-amber-200/70 pt-1.5 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => setSuryaAutoSkipEnabled(!suryaAutoSkipEnabled)}
+                            className={`flex items-center gap-1.5 rounded-lg px-2 py-0.5 font-bold transition cursor-pointer ${
+                              suryaAutoSkipEnabled
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs"
+                                : "bg-slate-200/70 text-slate-600 hover:bg-slate-300/70"
+                            }`}
+                            title="सीमित समय बाद स्वतः अगले आसन पर जाने के लिए"
+                          >
+                            <Timer size={12} className={suryaAutoSkipEnabled ? "text-emerald-600 animate-spin" : "text-slate-400"} style={{ animationDuration: "6s" }} />
+                            <span>
+                              ऑटो-नेक्स्ट: {suryaAutoSkipEnabled ? "चालू" : "बंद"}
+                            </span>
+                          </button>
+
+                          {suryaAutoSkipEnabled ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-[10px] font-black text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 animate-pulse">
+                                {suryaSecondsLeft}s में अगला
+                              </span>
+                              <div className="flex items-center gap-0.5 text-[10px]">
+                                {[10, 15, 20].map((sec) => (
+                                  <button
+                                    key={sec}
+                                    type="button"
+                                    onClick={() => {
+                                      setSuryaAutoSkipSeconds(sec);
+                                      setSuryaSecondsLeft(sec);
+                                    }}
+                                    className={`px-1 rounded font-bold cursor-pointer transition ${
+                                      suryaAutoSkipSeconds === sec
+                                        ? "bg-amber-500 text-white"
+                                        : "hover:bg-amber-100 text-slate-600"
+                                    }`}
+                                  >
+                                    {sec}s
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-medium text-amber-900/70">
+                              (अगले आसन के लिए 'स्किप आसन' दबाएं)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Switcher Tab between 3D Bot and 2D Step Viewer */}
+                      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl shrink-0 border border-slate-200/80">
+                        <button
+                          type="button"
+                          onClick={() => setSideViewerTab("3dbot")}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 ${
+                            sideViewerTab === "3dbot"
+                              ? "bg-white text-cyan-950 shadow-2xs font-black border border-cyan-200"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                        >
+                          <Rotate3d size={13} className="text-cyan-600" />
+                          3D AI बॉट (3D Motion)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSideViewerTab("guide")}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 ${
+                            sideViewerTab === "guide"
+                              ? "bg-white text-slate-900 shadow-2xs font-black border border-slate-200"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                        >
+                          <Sparkles size={13} className="text-amber-500" />
+                          12-स्टेप चार्ट
+                        </button>
+                      </div>
+
+                      {sideViewerTab === "3dbot" ? (
+                        <Pose3DBotViewer
+                          exercise="suryanamaskar"
+                          suryaStep={suryaStepNum}
+                          className="h-full"
+                        />
+                      ) : (
+                        <SuryaStepViewer
+                          activeStepNumber={suryaStepNum}
+                          detectedPoseName={bodyStatus}
+                          poseQuality={suryaPoseQuality || accuracy}
+                          voicePrompt={instruction}
+                          onSkipStep={handleSkipSuryaStep}
+                          className="h-full"
+                        />
+                      )}
+                    </div>
+                  ) : selectedExercise === "reaction" ? (
+                    <div className="flex flex-col h-full gap-2">
+                      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl shrink-0 border border-slate-200/80">
+                        <button
+                          type="button"
+                          onClick={() => setSideViewerTab("reaction")}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 ${
+                            sideViewerTab === "reaction"
+                              ? "bg-white text-indigo-950 shadow-2xs font-black border border-indigo-200"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                        >
+                          <Smile size={13} className="text-indigo-600" />
+                          इमोशन टेलीमेट्री
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSideViewerTab("3dbot")}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 ${
+                            sideViewerTab === "3dbot"
+                              ? "bg-white text-cyan-950 shadow-2xs font-black border border-cyan-200"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                        >
+                          <Rotate3d size={13} className="text-cyan-600" />
+                          3D पोस्चर बॉट
+                        </button>
+                      </div>
+
+                      {sideViewerTab === "reaction" ? (
+                        <ReactionViewer
+                          expressionData={expressionData}
+                          voicePrompt={instruction}
+                          className="h-full"
+                        />
+                      ) : (
+                        <Pose3DBotViewer
+                          exercise="desk"
+                          className="h-full"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <Pose3DBotViewer
+                      exercise={selectedExercise}
+                      className="h-full"
+                    />
+                  )}
+                </React.Suspense>
               </div>
             )}
           </div>

@@ -311,6 +311,47 @@ def live_ai_summary():
     return jsonify({"ai_live_summary": insight})
 
 
+@movement_bp.route('/surya/skip_step', methods=['POST'])
+def surya_skip_step():
+    """Skips the current Surya Namaskar asana and advances to the next step automatically."""
+    try:
+        verify_jwt_in_request(optional=True)
+    except Exception:
+        pass
+
+    analyzer = _active.get("analyzer")
+    if not analyzer:
+        analyzer = ANALYZERS["suryanamaskar"]()
+        _active["analyzer"] = analyzer
+        _active["exercise"] = "suryanamaskar"
+        _active["running"] = True
+
+    if hasattr(analyzer, "skip_step"):
+        metrics = analyzer.skip_step()
+        return jsonify({
+            "status": "success",
+            "message": "Step skipped successfully",
+            "metrics": metrics,
+            "current_step_number": metrics.get("current_step_number"),
+            "expected_pose_name": metrics.get("expected_pose_name"),
+            "voice_prompt": metrics.get("voice_prompt"),
+            "round_count": metrics.get("round_count", 0),
+        })
+    elif hasattr(analyzer, "engine") and hasattr(analyzer.engine, "skip_step"):
+        metrics = analyzer.engine.skip_step()
+        return jsonify({
+            "status": "success",
+            "message": "Step skipped successfully",
+            "metrics": metrics,
+            "current_step_number": metrics.get("current_step_number"),
+            "expected_pose_name": metrics.get("expected_pose_name"),
+            "voice_prompt": metrics.get("voice_prompt"),
+            "round_count": metrics.get("round_count", 0),
+        })
+
+    return jsonify({"status": "error", "message": "Current active exercise is not Surya Namaskar"}), 400
+
+
 @movement_bp.route('/stop', methods=['POST'])
 def stop_exercise():
     """Matches POST /pose/stop {exercise, duration}."""

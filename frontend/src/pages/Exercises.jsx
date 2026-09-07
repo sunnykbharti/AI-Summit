@@ -813,6 +813,8 @@ const ExerciseCard = ({ exercise, onOpen }) => {
         <img
           src={exercise.image}
           alt={exercise.name}
+          loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
 
@@ -920,6 +922,8 @@ const ExerciseModal = ({ exercise, onClose }) => {
           <img
             src={exercise.image}
             alt={exercise.name}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover opacity-85"
           />
 

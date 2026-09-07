@@ -17,33 +17,33 @@ import Profile       from "./pages/Profile";
 import Exercise      from "./pages/Exercises";
 import Leaderboard   from "./pages/Leaderboard";
 
+const routes = createBrowserRouter([
+  /* ====== AUTH ====== */
+  {
+    path: "/login",
+    element: <Login />,
+  },
+
+  /* ====== POSECARE MAIN APPLICATION ====== */
+  {
+    element: <HomeLayout />,
+    children: [
+      { path: "/",              element: <Dashboard /> },
+      { path: "/posecare",      element: <Home /> },
+      { path: "/dashboard",     element: <Dashboard /> },
+      { path: "/pose-analysis",     element: <PoseAnalysis /> },
+      { path: "/reaction-analysis", element: <PoseAnalysis initialExercise="reaction" /> },
+      { path: "/sessions",      element: <Sessions /> },
+      { path: "/progress",      element: <Progress /> },
+      { path: "/exercises",     element: <Exercise /> },
+      { path: "/leaderboard",   element: <Leaderboard /> },
+      { path: "/profile",       element: <Profile /> },
+      { path: "*",              element: <Navigate to="/dashboard" replace /> },
+    ],
+  },
+]);
+
 const Router = () => {
-  const routes = createBrowserRouter([
-    /* ====== AUTH ====== */
-    {
-      path: "/login",
-      element: <Login />,
-    },
-
-    /* ====== POSECARE MAIN APPLICATION ====== */
-    {
-      element: <HomeLayout />,
-      children: [
-        { path: "/",              element: <Dashboard /> },
-        { path: "/posecare",      element: <Home /> },
-        { path: "/dashboard",     element: <Dashboard /> },
-        { path: "/pose-analysis",     element: <PoseAnalysis /> },
-        { path: "/reaction-analysis", element: <PoseAnalysis initialExercise="reaction" /> },
-        { path: "/sessions",      element: <Sessions /> },
-        { path: "/progress",      element: <Progress /> },
-        { path: "/exercises",     element: <Exercise /> },
-        { path: "/leaderboard",   element: <Leaderboard /> },
-        { path: "/profile",       element: <Profile /> },
-        { path: "*",              element: <Navigate to="/dashboard" replace /> },
-      ],
-    },
-  ]);
-
   return <RouterProvider router={routes} />;
 };
 

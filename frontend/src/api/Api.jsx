@@ -102,5 +102,6 @@ export const fetchRecentSessions   = (force = false) => cachedGet("/dashboard/re
 export const fetchWeeklyActivity   = (force = false) => cachedGet("/dashboard/weekly", { force });
 export const fetchSessionsList     = (force = false) => cachedGet("/sessions", { force });
 export const fetchLeaderboardData  = (period = "all_time", force = false) => cachedGet(`/pose/leaderboard?period=${period}`, { force });
+export const fetchProfileData      = (force = false) => cachedGet("/profile", { force });
 
 export default api;
