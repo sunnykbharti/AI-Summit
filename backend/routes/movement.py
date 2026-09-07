@@ -357,8 +357,8 @@ def stop_exercise():
                 "summary_text": "Good focus & engagement throughout reaction session.",
             }
 
-    # Generate full AI Session Report using AISummarizer
-    ai_report = ai_summarizer.generate_session_summary(exercise_name, summary)
+    # Generate instant biomechanical AI Session Report (<2ms)
+    ai_report = ai_summarizer.generate_session_summary(exercise_name, summary, wait_for_llm=False)
     ai_summary_payload = json.dumps(ai_report, ensure_ascii=False)
     ai_summary_text = ai_report.get("formatted_text") or ai_report.get("overview") or ""
 
@@ -392,6 +392,24 @@ def stop_exercise():
         db.session.commit()
         session_id = session.id
         _active["started_at"] = None  # reset after saving
+
+        # Invalidate dashboard and sessions caches immediately
+        try:
+            from routes.dashboard import invalidate_dashboard_cache
+            from routes.sessions import invalidate_sessions_cache
+            invalidate_dashboard_cache()
+            invalidate_sessions_cache()
+        except Exception:
+            pass
+
+        # Trigger non-blocking async LLM enrichment in the background
+        from flask import current_app
+        ai_summarizer.async_enrich_session_summary(
+            session_id=session_id,
+            exercise_type=exercise_name,
+            summary_data=summary,
+            app=current_app._get_current_object()
+        )
     except Exception as e:
         db.session.rollback()
         print(f"Session save warning: {e}")
@@ -419,6 +437,27 @@ def stop_exercise():
 
 from datetime import timedelta
 from models import User
+
+@movement_bp.route('/session_summary_status/<int:session_id>', methods=['GET'])
+def get_session_summary_status(session_id):
+    """Lightweight polling endpoint to check if deep LLM background enrichment completed."""
+    session = MovementSession.query.get_or_404(session_id)
+    is_enriched = False
+    ai_report = None
+    if session.ai_summary:
+        try:
+            parsed = json.loads(session.ai_summary)
+            if isinstance(parsed, dict):
+                is_enriched = bool(parsed.get("is_enriched", False))
+                ai_report = parsed
+        except Exception:
+            pass
+    return jsonify({
+        "session_id": session.id,
+        "is_enriched": is_enriched,
+        "ai_report": ai_report,
+        "ai_summary": session.ai_summary,
+    })
 
 @movement_bp.route('/session/<int:session_id>', methods=['GET'])
 def get_session(session_id):

@@ -74,15 +74,34 @@ def _serialize(s: MovementSession) -> dict:
 
 
 
+import time
+
+_SESSIONS_CACHE = {'data': None, 'ts': 0}
+SESSIONS_CACHE_TTL = 30.0
+
+
+def invalidate_sessions_cache():
+    """Invalidate cached session listings when a workout finishes or a session is deleted."""
+    global _SESSIONS_CACHE
+    _SESSIONS_CACHE = {'data': None, 'ts': 0}
+
+
 @sessions_bp.route('', methods=['GET'])
 def list_sessions():
     """Return all sessions ordered by most recent first."""
+    now = time.time()
+    if _SESSIONS_CACHE['data'] is not None and (now - _SESSIONS_CACHE['ts'] < SESSIONS_CACHE_TTL):
+        return jsonify(_SESSIONS_CACHE['data'])
+
     sessions = (
         db.session.query(MovementSession)
         .order_by(MovementSession.started_at.desc())
         .all()
     )
-    return jsonify([_serialize(s) for s in sessions])
+    serialized = [_serialize(s) for s in sessions]
+    _SESSIONS_CACHE['data'] = serialized
+    _SESSIONS_CACHE['ts'] = now
+    return jsonify(serialized)
 
 
 @sessions_bp.route('/<int:session_id>', methods=['GET'])
@@ -102,4 +121,10 @@ def delete_session(session_id):
         return jsonify({'error': 'Session not found'}), 404
     db.session.delete(s)
     db.session.commit()
+    invalidate_sessions_cache()
+    try:
+        from routes.dashboard import invalidate_dashboard_cache
+        invalidate_dashboard_cache()
+    except Exception:
+        pass
     return jsonify({'message': 'Session deleted successfully'})

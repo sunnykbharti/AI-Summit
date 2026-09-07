@@ -13,6 +13,7 @@ import {
   CircleStop,
   Clock3,
   Dumbbell,
+  Flame,
   Gauge,
   HeartPulse,
   Info,
@@ -34,7 +35,7 @@ import {
   XCircle,
 } from "lucide-react";
 
-import api from "../api/Api";
+import api, { invalidateCache } from "../api/Api";
 import SuryaStepViewer from "../components/SuryaStepViewer";
 import ReactionViewer from "../components/ReactionViewer";
 
@@ -152,6 +153,8 @@ const PoseAnalysis = ({ initialExercise }) => {
   const canvasRef = useRef(null);
   const captureIntervalRef = useRef(null);
   const calibIntervalRef = useRef(null);
+  const isSendingFrameRef = useRef(false);
+  const frameAbortRef = useRef(null);
 
   const [cameraActive, setCameraActive] = useState(false);
   const [analysisRunning, setAnalysisRunning] = useState(false);
@@ -329,21 +332,29 @@ const PoseAnalysis = ({ initialExercise }) => {
       setIsSpeakingReport(false);
       return;
     }
+
+    const mistakesText = report.mistakes_analysis?.mistakes_list?.length
+      ? `सत्र में देखी गई गलतियां: ${report.mistakes_analysis.mistakes_list.map((m) => m.name).join(". ")}.`
+      : report.areas_for_improvement?.length
+      ? `सुधार के मुख्य बिंदु: ${report.areas_for_improvement.join(". ")}.`
+      : "";
+
+    const drillsText = report.corrective_exercises?.drills?.length
+      ? `सुधार के लिए सुझाई गई एक्सरसाइज: ${report.corrective_exercises.drills.map((d) => `${d.name} ${d.sets}`).join(". ")}.`
+      : "";
+
     const parts = [
       report.headline || "",
-      report.overview || "",
-      report.areas_for_improvement?.length
-        ? `सुधार के मुख्य बिंदु: ${report.areas_for_improvement.join(". ")}`
-        : "",
-      report.safety_note ? `सुरक्षा टिप: ${report.safety_note}` : "",
-      report.recovery_recommendation
-        ? `रिकवरी सुझाव: ${report.recovery_recommendation}`
-        : "",
+      report.what_you_did?.summary_text || report.overview || "",
+      mistakesText,
+      drillsText,
+      report.safety_note ? `सुरक्षा सलाह: ${report.safety_note}` : "",
+      report.recovery_recommendation ? `रिकवरी सलाह: ${report.recovery_recommendation}` : "",
     ].filter(Boolean);
 
-    const utterance = new SpeechSynthesisUtterance(parts.join(". "));
+    const utterance = new SpeechSynthesisUtterance(parts.join(" "));
     utterance.lang = "hi-IN";
-    utterance.rate = 0.95;
+    utterance.rate = 0.92;
     utterance.onend = () => setIsSpeakingReport(false);
     utterance.onerror = () => setIsSpeakingReport(false);
     setIsSpeakingReport(true);
@@ -360,63 +371,66 @@ const PoseAnalysis = ({ initialExercise }) => {
       category: "Desk Ergonomics",
       icon: <BookOpen size={24} />,
       description:
-        "लंबी पढ़ाई और काम के दौरान गर्दन का झुकाव, slouching और स्क्रीन दूरी की रियल-टाइम AI निगरानी।",
+        "लंबी पढ़ाई और लैपटॉप वर्क के दौरान गर्दन का झुकाव (Text Neck), अपर बैक स्लाउचिंग और स्क्रीन दूरी की रीयल-टाइम AI बायोमैकेनिक्स निगरानी।",
       difficulty: "All Levels",
-      targetMuscles: ["Cervical Spine", "Upper Trapezius", "Rhomboids", "Thoracic Extensors"],
+      targetMuscles: ["Cervical Spine", "Upper Trapezius", "Rhomboids", "Thoracic Extensors", "Core"],
       steps: [
-        "कुर्सी पर पूरी तरह पीछे बैठें ताकि lumbar spine को पूरा support मिले।",
-        "Monitor या screen को eye level पर लगभग 20-28 inches की दूरी पर रखें।",
-        "Shoulders को relax और हल्का पीछे रखें, आगे झुकने (hunching) से बचें।",
-        "दोनों पैरों को floor पर flat रखें और knees को 90° angle पर रखें।",
+        "कुर्सी पर पूरी तरह पीछे बैठें ताकि Lumbar Spine को चेयर के बैक-रेस्ट का 100% सपोर्ट मिले।",
+        "लैपटॉप या मॉनिटर को Eye Level पर रखें; आंखों से स्क्रीन की दूरी 20 से 28 इंच (एक हाथ की दूरी) रखें।",
+        "कंधों को ढीला छोड़ें, हल्का सा पीछे व नीचे (Scapular Retraction) रखें; आगे झुकने (Hunching) से बचें।",
+        "दोनों पैरों को फर्श पर सपाट (Flat) रखें और घुटनों में 90° का कोण बनाएं; पैर क्रॉस करके न बैठें।",
+        "ठुड्डी को हल्का सा पीछे की ओर रखें (Neutral Cervical Alignment); स्क्रीन की ओर गर्दन न निकालें।",
       ],
       commonMistakes: [
-        "गर्दन को आगे झुकाना ('Text Neck') जिससे cervical spine पर दबाव आता है",
-        "कुर्सी पर कमर को slouch करके बैठना",
-        "पैरों को cross करके बैठना जिससे pelvic balance बिगड़ता है",
+        "गर्दन को आगे झुकाना ('Text Neck' > 25° Forward Tilt) - सुधार: स्क्रीन ऊपर उठाएं व Chin Tucks करें।",
+        "कमर को घुमावदार करके बैठना (Thoracic Slouching) - सुधार: बैक सपोर्ट का उपयोग करें।",
+        "पैरों को क्रॉस करके बैठना - सुधार: दोनों पैर जमीन पर टिकाएं ताकि Pelvic Balance बना रहे।",
       ],
-      breathing: "धीमी और गहरी सांस लें ताकि दिमाग तक oxygen पहुंचे और shoulders का तनाव कम हो।",
+      breathing: "डायफ्रामिक ब्रीदिंग करें (पेट से गहरी व शांत सांस लें); हर 25 मिनट पर 30 सेकंड का पोस्चर रीसेट ब्रेक लें।",
     },
     {
       id: "squat",
       name: "स्क्वाट (Squats)",
       category: "Gym & Strength",
       icon: <Dumbbell size={24} />,
-      description: "Knee tracking, hip hinge depth और neutral spine alignment का सटीक बायोमैकेनिकल विश्लेषण।",
+      description: "Knee Tracking, Hip Hinge Depth और Neutral Spine Alignment का सटीक बायोमैकेनिकल विश्लेषण।",
       difficulty: "Beginner to Intermediate",
-      targetMuscles: ["Quadriceps", "Gluteus Maximus", "Hamstrings", "Core", "Erector Spinae"],
+      targetMuscles: ["Quadriceps", "Gluteus Maximus", "Hamstrings", "Deep Core", "Erector Spinae"],
       steps: [
-        "पैरों को shoulder-width दूरी पर रखें और toes को थोड़ा सा बाहर रखें।",
-        "Hips को पीछे धकेलते हुए knees को मोड़ें और नीचे झुकें।",
-        "Thighs को floor के parallel आने तक नीचे लाएं (hip crease घुटनों के बराबर)।",
-        "Heels और mid-foot से force लगाते हुए वापस ऊपर सीधे खड़े हों।",
+        "पैरों को कंधों की चौड़ाई (Shoulder-Width) जितना खोलें और पंजों को 15° से 30° बाहर की तरफ रखें।",
+        "मूवमेंट की शुरुआत हिप्स को पीछे धकेलते हुए (Hip Hinge) करें, जैसे किसी कुर्सी पर बैठ रहे हों।",
+        "घुटनों को पंजों की सीध में बाहर की तरफ ट्रैक करते हुए नीचे झुकें; चेस्ट को तना हुआ और रीढ़ न्यूट्रल रखें।",
+        "हिप क्रीज को घुटनों के समानांतर (Parallel Depth ~ 90° Knee Angle) तक नीचे लाएं।",
+        "एड़ियों और मिड-फुट से जमीन को मजबूती से धकेलते हुए वापस खड़े हों और ऊपर ग्लूट्स को 1 सेकंड स्क्वीज करें।",
       ],
       commonMistakes: [
-        "ऊपर आते समय घुटनों का अंदर झुकना (Knee Valgus collapse)",
-        "नीचे जाते समय heels का जमीन से उठ जाना",
-        "Torso का ज्यादा आगे झुकना जिससे lower back round हो जाती है",
+        "ऊपर आते समय घुटनों का अंदर झुकना (Knee Valgus Collapse) - सुधार: घुटनों को एक्टिवली बाहर फैलाएं।",
+        "नीचे जाते समय एड़ियां उठना (Heels Lifting) - सुधार: वजन हील्स पर रखें और Ankle Mobility बढ़ाएं।",
+        "धड़ का बहुत ज्यादा आगे झुक जाना - सुधार: नजर सामने रखें, कोर ब्रेस करें और चेस्ट तानें।",
       ],
-      breathing: "नीचे जाने से पहले पेट में गहरी सांस लें और core tight रखें; ऊपर आते हुए सांस छोड़ें।",
+      breathing: "नीचे जाने से पहले पेट में गहरी सांस भरकर कोर को ब्रेस करें; ऊपर उठते हुए जोर से सांस छोड़ें।",
     },
     {
       id: "pushup",
       name: "पुश-अप (Push-ups)",
       category: "Calisthenics & Strength",
       icon: <Activity size={24} />,
-      description: "Full body plank alignment, chest depth और elbow flaring का लाइव विश्लेषण।",
+      description: "Full Body Plank Alignment, Chest Depth और Elbow Flaring का रीयल-टाइम काइनेटिक विश्लेषण।",
       difficulty: "Beginner to Intermediate",
       targetMuscles: ["Pectoralis Major", "Triceps Brachii", "Anterior Deltoids", "Core Stabilizers"],
       steps: [
-        "हाथों को shoulder-width से थोड़ा बाहर रखें और fingers सामने रखें।",
-        "सिर से लेकर heels तक पूरे शरीर को एक सीधी rigid plank line में रखें।",
-        "Chest को floor से 2 inch ऊपर तक नीचे लाएं, elbows 45° angle पर रखें।",
-        "Floor को मजबूती से push करते हुए controlled तरीके से ऊपर आएं।",
+        "हथेलियों को कंधों से थोड़ा बाहर फर्श पर मजबूती से रखें और उंगलियों को फैलाकर सामने रखें।",
+        "सिर, कंधे, हिप्स और एड़ियों को एक सीधी rigid plank line में रखें; कोर और ग्लूट्स को टाइट करें।",
+        "कोहनियों को शरीर के साथ 45° का कोण (तीर का आकार - Arrow Shape) बनाते हुए नीचे लाएं; कोहनियों को 90° बाहर न फैलाएं।",
+        "छाती को फर्श से 2 से 3 इंच ऊपर तक लाएं ताकि चेस्ट फाइबर्स में पूरा खिंचाव महसूस हो।",
+        "फर्श को मजबूती से पुश करते हुए ऊपर आएं और शोल्डर ब्लेड्स को हल्का प्रोट्रैक्ट (Protraction) करें।",
       ],
       commonMistakes: [
-        "Hips का नीचे लटकना जिससे lumbar spine पर खिंचाव पड़ता है",
-        "Elbows का 90° पर ज्यादा बाहर फैलना (Shoulder strain)",
-        "सिर्फ सिर को नीचे झुकाकर आधी depth दिखाना",
+        "हिप्स का नीचे लटकना (Hip Sagging) - सुधार: पेट की मांसपेशियों को कसकर रखें और ग्लूट्स टाइट करें।",
+        "कोहनियों का 90° पर बाहर फैलना (Elbow Flare) - सुधार: कोहनियों को पसलियों के करीब 45° पर रखें।",
+        "सिर्फ गर्दन नीचे झुकाना - सुधार: सिर को रीढ़ की सीध में रखें, फर्श पर 1 फीट आगे देखें।",
       ],
-      breathing: "नीचे जाते समय सांस अंदर लें; ऊपर push करते समय सांस छोड़ें।",
+      breathing: "नीचे जाते समय सांस अंदर लें (Eccentric); ऊपर पुश करते समय सांस बाहर छोड़ें (Concentric)।",
     },
     {
       id: "suryanamaskar",
@@ -426,21 +440,29 @@ const PoseAnalysis = ({ initialExercise }) => {
       category: "Traditional Yoga Flow",
       icon: <Sparkles size={24} />,
       description:
-        "सूर्य नमस्कार के सभी 12 आसनों का kinetic flow, sequence tracking और posture symmetry।",
+        "सूर्य नमस्कार के सभी 12 आसनों का kinetic flow, sequence tracking और posture symmetry विश्लेषण।",
       difficulty: "All Levels",
       targetMuscles: ["Full Body Kinetic Chain", "Hamstrings", "Spinal Flexibility", "Chest & Shoulders"],
       steps: [
-        "प्रणामासन: दोनों हथेलियों को chest के पास जोड़कर (Prayer Pose) सीधे खड़े हों।",
-        "हस्त उत्तानासन: गहरी सांस लेते हुए arms ऊपर उठाएं और हल्का सा backbend करें।",
-        "पादहस्तासन: सांस छोड़ते हुए hips से आगे झुकें और floor को छुएं।",
-        "अश्व संचालनासन, दंडासन, अष्टांग नमस्कार और भुजंगासन के flow को smooth रखें।",
+        "1. प्रणामासन (Prayer Pose): दोनों हथेलियों को चेस्ट के पास जोड़कर सीधे खड़े हों, वजन दोनों पैरों पर समान।",
+        "2. हस्त उत्तानासन (Raised Arms): गहरी सांस लेते हुए भुजाएं ऊपर उठाएं, हल्का सा बैकबेंड करें।",
+        "3. पादहस्तासन (Hand to Foot): सांस छोड़ते हुए हिप्स से आगे झुकें, रीढ़ सीधी रखें और हथेलियां पैरों के पास लाएं।",
+        "4. अश्व संचालनासन (Equestrian): सांस लेते हुए दायां पैर पीछे ले जाएं, घुटना जमीन पर, नजर ऊपर।",
+        "5. दंडासन (Plank): सांस रोककर बायां पैर भी पीछे लाएं, शरीर सिर से पैर तक सीधी रेखा में।",
+        "6. अष्टांग नमस्कार (Eight Limbed): सांस छोड़ते हुए घुटने, छाती और ठुड्डी जमीन पर लगाएं।",
+        "7. भुजंगासन (Cobra Pose): सांस लेते हुए छाती को ऊपर उठाएं, शोल्डर्स नीचे, कोहनियां हल्की मुड़ी हुई।",
+        "8. पर्वतासन / अधोमुख (Mountain / Downward Dog): सांस छोड़ते हुए हिप्स ऊपर उठाएं, एड़ियां फर्श की ओर दबाएं।",
+        "9. अश्व संचालनासन: सांस लेते हुए दायां पैर आगे लाएं दोनों हाथों के बीच।",
+        "10. पादहस्तासन: सांस छोड़ते हुए बायां पैर भी आगे लाएं और सिर घुटनों के पास ले जाएं।",
+        "11. हस्त उत्तानासन: सांस लेते हुए भुजाएं ऊपर उठाकर पीछे स्ट्रेच करें।",
+        "12. प्रणामासन: सांस छोड़ते हुए दोनों हाथ जोड़कर मूल स्थिति में लौटें।",
       ],
       commonMistakes: [
-        "आसनों के बीच सांस रोक कर रखना (हर movement के साथ सांस का तालमेल रखें)",
-        "Backbend में lower back पर ज्यादा जोर देना (chest open रखें)",
-        "Transitions में जल्दबाजी करना और balance खोना",
+        "आसनों के बीच सांस रोक लेना - सुधार: हर आसन के साथ तय श्वास चक्र का पालन करें।",
+        "पादहस्तासन में कमर मोड़कर झुकना - सुधार: घुटने हल्के मोड़ें लेकिन हिप्स से झुकें।",
+        "भुजंगासन में कंधों को कानों से सटा लेना - सुधार: शोल्डर्स को नीचे रोल करें और छाती खोलें।",
       ],
-      breathing: "हर movement के साथ सांस का तालमेल रखें: ऊपर उठते हुए सांस लें, आगे झुकते हुए सांस छोड़ें।",
+      breathing: "शारीरिक विस्तार (Backbend/Rise) में श्वास अंदर लें; संकुचन (Forward Fold) में श्वास बाहर छोड़ें।",
     },
     {
       id: "tree_pose",
@@ -451,38 +473,39 @@ const PoseAnalysis = ({ initialExercise }) => {
       difficulty: "Beginner to Intermediate",
       targetMuscles: ["Ankle Stabilizers", "Calves", "Gluteus Medius", "Deep Core Stabilizers"],
       steps: [
-        "एक पैर को जमीन पर firmly जमाएं और पूरे शरीर का balance बनाएं।",
+        "ताड़ासन में खड़े हों; एक पैर के चारों कोनों को जमीन में मजबूती से जमाएं (Rooted Foot)।",
         "दूसरे पैर के तलवे को inner thigh या calf पर रखें (घुटने के जोड़ पर कभी न रखें)।",
-        "हाथों को chest के पास prayer pose में रखें या सिर के ऊपर सीधा उठाएं।",
-        "सामने किसी एक स्थिर बिंदु (Drishti) पर नजर टिकाएं।",
+        "पेल्विस को न्यूट्रल और सामने की ओर चौकोर (Square Hips) रखें; हिप को एक तरफ बाहर न निकलने दें।",
+        "हाथों को छाती के पास prayer pose में रखें या सांस भरते हुए सिर के ऊपर सीधा उठाएं।",
+        "नजर को सामने किसी एक स्थिर बिंदु (Drishti Point) पर टिकाएं और शरीर को संतुलित रखें।",
       ],
       commonMistakes: [
-        "पैर को directly घुटने (knee joint) पर दबाना",
-        "कमर (hip) को एक तरफ बाहर निकाल देना",
-        "Shoulders और गर्दन को जरूरत से ज्यादा tense करना",
+        "पैर को directly घुटने (knee joint) पर दबाना - सुधार: पैर को केवल जांघ (Thigh) या पिंडली (Calf) पर रखें।",
+        "कमर (hip) को एक तरफ बाहर निकाल देना - सुधार: स्टैंडिंग ग्लूट को कसकर रखें और पेल्विस सीधा रखें।",
+        "कंधों में जरूरत से ज्यादा तनाव - सुधार: कंधों को ढीला छोड़ें और सांस को शांत रखें।",
       ],
-      breathing: "नाक से धीमी और गहरी सांस लें ताकि balance और nervous system शांत रहे।",
+      breathing: "नाक से 4 सेकंड अंदर और 4 सेकंड बाहर धीमी, शांत लयबद्ध सांस लें।",
     },
     {
       id: "lunges",
       name: "लंजेस (Lunges)",
       category: "Gym & Unilateral",
       icon: <Activity size={24} />,
-      description: "Front knee alignment, vertical torso posture और unilateral balance का विश्लेषण।",
+      description: "Front knee tracking, vertical torso posture और unilateral balance का सटीक विश्लेषण।",
       difficulty: "Beginner to Intermediate",
       targetMuscles: ["Quadriceps", "Glutes", "Hamstrings", "Calves", "Hip Stabilizers"],
       steps: [
-        "एक पैर से आगे कदम बढ़ाएं और torso को बिल्कुल सीधा रखें।",
-        "पीछे वाले घुटने को floor की ओर नीचे लाएं ताकि दोनों knees 90° angle बनाएं।",
-        "Front knee को toes के line में रखें, घुटने को पैर की उंगलियों से आगे न जाने दें।",
-        "Front heel से push करते हुए वापस खड़े होने की स्थिति में आएं।",
+        "एक पैर से आगे 2.5 से 3 फीट बड़ा और स्थिर कदम बढ़ाएं और धड़ को बिल्कुल सीधा (Vertical) रखें।",
+        "पीछे वाले घुटने को floor की ओर नीचे लाएं ताकि दोनों घुटने 90° angle बनाएं।",
+        "आगे वाला घुटना toes की सीध में रहे, घुटने को पैर के पंजों से आगे न निकलने दें।",
+        "आगे वाली एड़ी (Front Heel) से जमीन को दबाते हुए वापस खड़े होने की स्थिति में आएं।",
       ],
       commonMistakes: [
-        "Front knee का अंदर की तरफ झुकना (Valgus collapse)",
-        "Torso का आगे की तरफ झुक जाना",
-        "छोटा कदम रखना जिससे आगे वाली heel जमीन से उठ जाए",
+        "आगे वाले घुटने का अंदर झुकना (Knee Valgus) - सुधार: घुटने को बाहर की ओर ट्रैक कराएं।",
+        "धड़ का आगे झुक जाना - सुधार: छाती तानकर रखें और कंधों को हिप्स के ठीक ऊपर रखें।",
+        "छोटा कदम रखना जिससे आगे वाली एड़ी जमीन से उठ जाए - सुधार: कदम थोड़ा बड़ा रखें।",
       ],
-      breathing: "आगे कदम रखकर नीचे जाते समय सांस लें; वापस आते समय सांस छोड़ें।",
+      breathing: "नीचे जाते समय सांस अंदर लें; ऊपर उठते हुए सांस बाहर छोड़ें।",
     },
     {
       id: "plank",
@@ -493,17 +516,98 @@ const PoseAnalysis = ({ initialExercise }) => {
       difficulty: "Beginner to Intermediate",
       targetMuscles: ["Rectus Abdominis", "Transverse Abdominis", "Glutes", "Serratus Anterior"],
       steps: [
-        "Forearms को floor पर रखें, elbows को directly shoulders के नीचे रखें।",
-        "पैरों को पीछे फैलाएं, heels को पीछे धकेलें और शरीर को straight line में रखें।",
-        "Abdominal muscles और glutes को squeeze करें, hips को स्थिर रखें।",
-        "गर्दन को neutral रखें और gaze को दोनों हाथों के बीच floor पर रखें।",
+        "Forearms को floor पर रखें, कोहनियां directly shoulders के नीचे 90° पर रखें।",
+        "पैरों को पीछे सीधा फैलाएं, एड़ियों को पीछे धकेलें और सिर से एड़ियों तक शरीर को सीधा रखें।",
+        "नाभि को रीढ़ की तरफ खींचें (Abdominal Hollow Body), ग्लूट्स और जांघों को कसकर रखें।",
+        "गर्दन को neutral रखें; नजर दोनों हाथों के बीच फर्श पर रखें।",
+        "कमर को न तो नीचे लटकने दें और न ही हिप्स को बहुत ऊपर उठाएं।",
       ],
       commonMistakes: [
-        "Hips का नीचे झुक जाना जिससे lower back में दर्द हो सकता है",
-        "Hips को बहुत ऊपर उठा लेना (Pike position)",
-        "सांस रोक कर रखना",
+        "कमर का नीचे झुक जाना (Lumbar Sag) - सुधार: पेट को टाइट रखें और पेल्विस सीधा रखें।",
+        "हिप्स को बहुत ऊपर उठा लेना (Pike) - सुधार: शरीर को एक सीधी तख्ती की तरह रखें।",
+        "सांस रोक कर रखना - सुधार: कोर टाइट रखते हुए पसलियों से लगातार सांस लें।",
       ],
-      breathing: "Core को tight रखते हुए छोटी और steady सांस लेते रहें।",
+      breathing: "कोर को बिना ढीला किए छाती से छोटी और निरंतर सांस लेते रहें।",
+    },
+    {
+      id: "warrior_two",
+      name: "वीरभद्रासन II (Warrior II)",
+      category: "Traditional Yoga",
+      icon: <Activity size={24} />,
+      description: "पैरों की सहनशक्ति, हिप ओपनिंग और संतुलन का शक्तिशाली क्लासिक योग आसन।",
+      difficulty: "Intermediate",
+      targetMuscles: ["Quadriceps", "Hip Abductors", "Groin Extensors", "Deltoids", "Core"],
+      steps: [
+        "पैरों को 3.5 से 4 फीट की दूरी पर फैलाएं; दाएं पैर को 90° बाहर और बाएं पैर को 15° अंदर रखें।",
+        "दाएं घुटने को मोड़कर जांघ को फर्श के समानांतर लाएं; घुटना ठीक एड़ी के ऊपर 90° पर रहे।",
+        "दोनों भुजाओं को कंधों की ऊंचाई पर फर्श के समानांतर फैलाएं; हथेलियां नीचे की ओर।",
+        "धड़ को बिल्कुल बीच में सीधा रखें (आगे न झुकें); नजर आगे वाली मध्यमा उंगली पर टिकाएं।",
+      ],
+      commonMistakes: [
+        "आगे वाले घुटने का अंदर झुकना - सुधार: घुटने को बाहर की तरफ खोलकर रखें।",
+        "धड़ का आगे झुक जाना - सुधार: रीढ़ को पेल्विस के ठीक ऊपर सीधा रखें।",
+      ],
+      breathing: "आसन में स्थिर रहते हुए 5 से 8 गहरी और स्थिर सांसें लें।",
+    },
+    {
+      id: "triangle",
+      name: "त्रिकोणासन (Triangle Pose)",
+      category: "Traditional Yoga",
+      icon: <Target size={24} />,
+      description: "हैमस्ट्रिंग्स, स्पाइनल साइड-फ्लेक्सिबिलिटी और पेल्विक अलाइनमेंट का योग विश्लेषण।",
+      difficulty: "Beginner to Intermediate",
+      targetMuscles: ["Hamstrings", "Obliques", "Latissimus Dorsi", "Hip Adductors"],
+      steps: [
+        "पैरों को 3.5 फीट की दूरी पर खोलें; दोनों घुटने सीधे रखें।",
+        "सांस छोड़ते हुए धड़ को आगे वाले पैर की तरफ साइड में झुकाएं; हाथ को पिंडली या फर्श पर रखें।",
+        "दूसरे हाथ को आसमान की ओर सीधा उठाएं; दोनों भुजाएं एक सीधी 180° लाइन में रहें।",
+        "छाती को आगे झुकने न दें, साइड से खोलकर रखें और ऊपर वाले हाथ के अंगूठे को देखें।",
+      ],
+      commonMistakes: [
+        "छाती का फर्श की ओर गिरना - सुधार: छाती को ऊपर की ओर खोलकर रखें।",
+        "घुटने को हाइपर-एक्सटेंड करना - सुधार: घुटने में माइक्रो-बेंड रखें।",
+      ],
+      breathing: "साइड स्ट्रेच का आनंद लेते हुए धीमी और निरंतर सांस लेते रहें।",
+    },
+    {
+      id: "downward_dog",
+      name: "अधोमुख श्वानासन (Downward Dog)",
+      category: "Traditional Yoga",
+      icon: <Sparkles size={24} />,
+      description: "फुल बॉडी काइनेटिक स्ट्रेच, रीढ़ का डीकंप्रेशन और हैमस्ट्रिंग लचीलेपन का विश्लेषण।",
+      difficulty: "All Levels",
+      targetMuscles: ["Hamstrings", "Calves", "Latissimus Dorsi", "Triceps", "Deep Core"],
+      steps: [
+        "हथेलियों और पंजों के बल उल्टे 'V' आकार में आएं; हाथ कंधे की चौड़ाई पर, पैर हिप की चौड़ाई पर।",
+        "हथेलियों से फर्श को आगे धकेलें और टेलबोन (Tailbone) को आसमान की ओर ऊपर उठाएं।",
+        "एड़ियों को फर्श की तरफ दबाएं; रीढ़ को बिल्कुल सीधा और लंबा रखें।",
+        "गर्दन को ढीला छोड़ें, नजर नाभि की तरफ रखें।",
+      ],
+      commonMistakes: [
+        "कमर को गोल कर लेना - सुधार: जरूरत पड़ने पर घुटने थोड़े मोड़ें और रीढ़ सीधी रखें।",
+        "कंधों को कानों से चिपका लेना - सुधार: शोल्डर ब्लेड्स को चौड़ा करें।",
+      ],
+      breathing: "रीढ़ को लंबा करते हुए 5 गहरी और शांत सांसें लें।",
+    },
+    {
+      id: "cobra",
+      name: "भुजंगासन (Cobra Pose)",
+      category: "Traditional Yoga",
+      icon: <Flame size={24} />,
+      description: "छाती खोलने और स्पाइनल एक्सटेंशन का प्रमुख आसन; फेफड़ों की क्षमता बढ़ाने में सहायक।",
+      difficulty: "Beginner",
+      targetMuscles: ["Erector Spinae", "Gluteus Maximus", "Pectorals", "Latissimus Dorsi"],
+      steps: [
+        "पेट के बल लेटें, पैरों को जोड़े रखें और पंजों को पीछे सीधा फैलाएं।",
+        "हथेलियों को छाती के दोनों तरफ कंधों के नीचे रखें; कोहनियां पसलियों से चिपकी रहें।",
+        "गहरी सांस लेते हुए नाभि तक शरीर को धीरे-धीरे ऊपर उठाएं; वजन पीठ की मांसपेशियों से उठाएं।",
+        "कंधों को कानों से दूर नीचे रखें, छाती खुली और गर्दन हल्की ऊपर।",
+      ],
+      commonMistakes: [
+        "कोहनियों को पूरी तरह लॉक करके कंधों को उचकाना - सुधार: कोहनियां हल्की मुड़ी रखें।",
+        "लोअर बैक पर बहुत ज्यादा झटका देना - सुधार: केवल छाती को आगे-ऊपर उठाएं।",
+      ],
+      breathing: "ऊपर उठते समय गहरी सांस अंदर लें; नीचे आते समय धीरे-धीरे सांस छोड़ें।",
     },
     {
       id: "reaction",
@@ -511,7 +615,7 @@ const PoseAnalysis = ({ initialExercise }) => {
       category: "Reaction & Emotion",
       icon: <Smile size={24} />,
       description:
-        "रियल-टाइम facial expressions, थकान (fatigue), drowsiness alerts और engagement telemetry।",
+        "रीयल-टाइम facial expressions, थकान (fatigue), drowsiness alerts और mental engagement telemetry।",
       difficulty: "All Levels",
       targetMuscles: ["Facial Muscle Blendshapes", "Blink/Eye Openness", "Fatigue & Exertion"],
       steps: [
@@ -521,9 +625,9 @@ const PoseAnalysis = ({ initialExercise }) => {
         "थकान या drowsiness का alert मिलने पर तुरंत rest लें और पानी पिएं।",
       ],
       commonMistakes: [
-        "कम रोशनी या पीछे से तेज लाइट होना जिससे face detect न हो सके",
-        "Camera से बहुत दूर बैठना",
-        "हाथों से मुंह या आंखों को ढकना",
+        "कम रोशनी या पीछे से तेज लाइट होना जिससे face detect न हो सके।",
+        "Camera से बहुत दूर बैठना।",
+        "हाथों से मुंह या आंखों को ढकना।",
       ],
       breathing: "स्वाभाविक रूप से सांस लें और चेहरे की मांसपेशियों को तनावमुक्त रखें।",
     },
@@ -704,10 +808,12 @@ const PoseAnalysis = ({ initialExercise }) => {
   // FRAME ANALYSIS LOOP
   // ============================================================
   const processFrame = async () => {
+    if (isSendingFrameRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || video.readyState < 2) return;
 
+    isSendingFrameRef.current = true;
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
 
@@ -715,12 +821,17 @@ const PoseAnalysis = ({ initialExercise }) => {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = canvas.toDataURL("image/jpeg", 0.7);
 
+    const controller = new AbortController();
+    frameAbortRef.current = controller;
+
     try {
       const response = await api.post("/pose/analyze_frame", {
         image: imageData,
         exercise: selectedExercise,
         expression_enabled: expressionEnabled,
         body_map: bodyMap,
+      }, {
+        signal: controller.signal,
       });
 
       const { annotated_image, metrics, expression, ai_live_summary } =
@@ -803,7 +914,13 @@ const PoseAnalysis = ({ initialExercise }) => {
           : "सक्रिय (Active)"
       );
     } catch (error) {
+      if (error?.name === "CanceledError" || error?.code === "ERR_CANCELED") {
+        return;
+      }
       console.error("Frame analysis failed:", error);
+    } finally {
+      isSendingFrameRef.current = false;
+      frameAbortRef.current = null;
     }
   };
 
@@ -847,13 +964,22 @@ const PoseAnalysis = ({ initialExercise }) => {
   };
 
   // ============================================================
-  // STOP ANALYSIS -> OPENS REPORT AS POP-UP MODAL!
+  // STOP ANALYSIS -> OPENS REPORT AS POP-UP MODAL INSTANTLY!
   // ============================================================
   const stopAnalysis = async () => {
     if (captureIntervalRef.current) {
       clearInterval(captureIntervalRef.current);
       captureIntervalRef.current = null;
     }
+    if (frameAbortRef.current) {
+      try { frameAbortRef.current.abort(); } catch (_) {}
+      frameAbortRef.current = null;
+    }
+    isSendingFrameRef.current = false;
+
+    // Invalidate client caches so other pages show fresh data immediately
+    invalidateCache("/dashboard");
+    invalidateCache("/sessions");
 
     try {
       setLoading(true);
@@ -867,6 +993,26 @@ const PoseAnalysis = ({ initialExercise }) => {
       // Triggers the pop-up modal immediately!
       setSessionResult(response.data);
       speakFeedback("वर्कआउट पूरा हुआ। आपकी बायोमैकेनिक्स रिपोर्ट तैयार है।");
+
+      // Optional gentle background check if LLM enrichment completes while modal is open
+      if (response.data?.session_id) {
+        const sid = response.data.session_id;
+        setTimeout(async () => {
+          try {
+            const statusRes = await api.get(`/pose/session_summary_status/${sid}`);
+            if (statusRes.data?.is_enriched && statusRes.data?.ai_report) {
+              setSessionResult((prev) => {
+                if (!prev || prev.session_id !== sid) return prev;
+                return {
+                  ...prev,
+                  ai_report: statusRes.data.ai_report,
+                  feedback: statusRes.data.ai_report.formatted_text || prev.feedback,
+                };
+              });
+            }
+          } catch (_) {}
+        }, 3500);
+      }
     } catch (error) {
       console.error("Failed to stop analysis:", error);
       setSessionResult({
@@ -900,8 +1046,16 @@ const PoseAnalysis = ({ initialExercise }) => {
 
   useEffect(() => {
     return () => {
+      if (frameAbortRef.current) {
+        try { frameAbortRef.current.abort(); } catch (_) {}
+        frameAbortRef.current = null;
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
       if (captureIntervalRef.current) clearInterval(captureIntervalRef.current);
       if (calibIntervalRef.current) clearInterval(calibIntervalRef.current);
@@ -1838,78 +1992,141 @@ const PoseAnalysis = ({ initialExercise }) => {
                   </button>
                 </div>
 
-                {/* Synthesis Overview */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs uppercase tracking-wider mb-1.5">
-                    <Brain size={15} className="text-cyan-600" />
-                    मूवमेंट निरंतरता व फॉर्म (Form & Consistency)
+                {/* 1. क्या-क्या किया (What All You Did) */}
+                <div className="rounded-2xl border border-cyan-200/80 bg-gradient-to-br from-cyan-50/70 to-blue-50/50 p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-1.5 text-cyan-950 font-black text-xs uppercase tracking-wider">
+                      <Brain size={16} className="text-cyan-600" />
+                      1. आपने क्या-क्या किया (Session Performance & Telemetry)
+                    </div>
+                    <span className="rounded-full bg-cyan-100 px-2.5 py-0.5 text-[10px] font-bold text-cyan-800">
+                      {sessionResult.ai_report.what_you_did?.exercise_name || currentExercise.name}
+                    </span>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                    {sessionResult.ai_report.overview}
+
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+                    {sessionResult.ai_report.what_you_did?.summary_text || sessionResult.ai_report.overview}
                   </p>
+
+                  {sessionResult.ai_report.what_you_did?.target_muscles && (
+                    <div className="mt-3 flex items-center gap-2 rounded-xl bg-white/80 p-2.5 border border-cyan-100 text-xs text-slate-600">
+                      <Dumbbell size={14} className="text-cyan-600 shrink-0" />
+                      <div>
+                        <strong className="text-slate-800">सक्रिय मांसपेशियां (Target Muscles): </strong>
+                        {sessionResult.ai_report.what_you_did.target_muscles}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Dual Column: Strengths & Corrections */}
-                <div className="grid gap-3 md:grid-cols-2">
-                  {sessionResult.ai_report.key_strengths &&
-                    sessionResult.ai_report.key_strengths.length > 0 && (
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
-                        <div className="flex items-center gap-1.5 text-emerald-900 font-black text-xs uppercase tracking-wider mb-2.5">
-                          <CheckCircle2 size={15} className="text-emerald-600" />
-                          सत्यापित खूबियां (Verified Strengths)
-                        </div>
-                        <ul className="space-y-1.5">
-                          {sessionResult.ai_report.key_strengths.map((str, idx) => (
-                            <li key={idx} className="flex items-start gap-2 text-xs text-slate-800 font-medium">
-                              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-emerald-900 text-[9px] font-bold">
-                                ✓
-                              </span>
-                              <span>{str}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                {/* 2. क्या-क्या गलतियां हुईं और उनके कारण (Mistakes & Biomechanical Causes) */}
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-5">
+                  <div className="flex items-center gap-1.5 text-amber-950 font-black text-xs uppercase tracking-wider mb-3">
+                    <AlertTriangle size={16} className="text-amber-600" />
+                    2. क्या-क्या गलतियां हुईं और उनके बायोमैकेनिकल कारण (Mistakes Observed)
+                  </div>
 
-                  {sessionResult.ai_report.areas_for_improvement &&
-                    sessionResult.ai_report.areas_for_improvement.length > 0 && (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-                        <div className="flex items-center gap-1.5 text-amber-900 font-black text-xs uppercase tracking-wider mb-2.5">
-                          <AlertTriangle size={15} className="text-amber-600" />
-                          सुधार के बिंदु (Corrections Needed)
+                  {sessionResult.ai_report.mistakes_analysis?.mistakes_list?.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {sessionResult.ai_report.mistakes_analysis.mistakes_list.map((m, idx) => (
+                        <div key={idx} className="rounded-xl border border-amber-200/80 bg-white p-3 shadow-2xs">
+                          <div className="flex items-center gap-2 text-xs font-black text-slate-900">
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 text-[10px]">
+                              {idx + 1}
+                            </span>
+                            <span>{m.name}</span>
+                          </div>
+                          <p className="mt-1 pl-6 text-xs text-slate-600 leading-relaxed">
+                            <strong className="text-amber-900 font-semibold">कारण: </strong>
+                            {m.reason}
+                          </p>
                         </div>
-                        <ul className="space-y-1.5">
-                          {sessionResult.ai_report.areas_for_improvement.map((area, idx) => (
-                            <li key={idx} className="flex items-start gap-2 text-xs text-slate-800 font-medium">
-                              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-900 text-[9px] font-bold">
-                                !
-                              </span>
-                              <span>{area}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                      ))}
+                    </div>
+                  ) : sessionResult.ai_report.areas_for_improvement?.length > 0 ? (
+                    <ul className="space-y-2">
+                      {sessionResult.ai_report.areas_for_improvement.map((area, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-xs text-slate-800 font-medium">
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-900 text-[9px] font-bold">
+                            !
+                          </span>
+                          <span>{area}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="rounded-xl bg-white p-3 text-xs text-emerald-800 font-semibold flex items-center gap-2 border border-emerald-200">
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                      कोई गंभीर बायोमैकेनिकल त्रुटि नहीं मिली — आपका फॉर्म और जॉइंट अलाइनमेंट बहुत संतुलित रहा।
+                    </div>
+                  )}
                 </div>
 
-                {/* Safety & Recovery Notes */}
+                {/* 3. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills) */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 text-emerald-950 font-black text-xs uppercase tracking-wider">
+                      <Sparkles size={16} className="text-emerald-600" />
+                      3. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills)
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest bg-emerald-100 px-2 py-0.5 rounded-full">
+                      सुझाए गए ड्रिल्स
+                    </span>
+                  </div>
+
+                  {sessionResult.ai_report.corrective_exercises?.drills?.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {sessionResult.ai_report.corrective_exercises.drills.map((d, idx) => (
+                        <div key={idx} className="rounded-xl border border-emerald-200/80 bg-white p-3.5 shadow-2xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                            <h4 className="text-xs font-black text-slate-900 flex items-center gap-2">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white text-[10px] font-bold">
+                                {idx + 1}
+                              </span>
+                              {d.name}
+                            </h4>
+                            <span className="inline-flex self-start sm:self-auto rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                              {d.sets}
+                            </span>
+                          </div>
+                          <p className="mt-1.5 pl-7 text-xs text-slate-600 leading-relaxed">
+                            {d.instruction}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="rounded-xl bg-white p-3 text-xs text-slate-700 border border-emerald-100">
+                        <strong className="text-slate-900">1. मोबिलिटी व ग्लूट ब्रेसिंग: </strong>
+                        हल्के वार्म-अप और ग्लूट ब्रिज से पेल्विक अलाइनमेंट मजबूत रखें।
+                      </div>
+                      <div className="rounded-xl bg-white p-3 text-xs text-slate-700 border border-emerald-100">
+                        <strong className="text-slate-900">2. स्लो टेम्पो प्रैक्टिस: </strong>
+                        मूवमेंट की गति नियंत्रित रखें ताकि फॉर्म न बिगड़े।
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. सुरक्षा व रिकवरी सलाह (Safety & Recovery Protocol) */}
                 {(sessionResult.ai_report.safety_note ||
                   sessionResult.ai_report.recovery_recommendation) && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-3.5 space-y-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2.5 shadow-2xs">
                     {sessionResult.ai_report.safety_note && (
-                      <div className="flex items-start gap-2 text-xs text-slate-600">
-                        <ShieldAlert size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                      <div className="flex items-start gap-2.5 text-xs text-slate-600">
+                        <ShieldAlert size={16} className="text-amber-600 shrink-0 mt-0.5" />
                         <div>
-                          <strong className="text-slate-800">सुरक्षा सुझाव: </strong>
+                          <strong className="text-slate-900 font-bold">सुरक्षा सलाह (Safety): </strong>
                           {sessionResult.ai_report.safety_note}
                         </div>
                       </div>
                     )}
                     {sessionResult.ai_report.recovery_recommendation && (
-                      <div className="flex items-start gap-2 text-xs text-slate-600">
-                        <HeartPulse size={15} className="text-cyan-600 shrink-0 mt-0.5" />
+                      <div className="flex items-start gap-2.5 text-xs text-slate-600 border-t border-slate-100 pt-2">
+                        <HeartPulse size={16} className="text-cyan-600 shrink-0 mt-0.5" />
                         <div>
-                          <strong className="text-slate-800">रिकवरी सलाह: </strong>
+                          <strong className="text-slate-900 font-bold">रिकवरी व कूलडाउन (Recovery): </strong>
                           {sessionResult.ai_report.recovery_recommendation}
                         </div>
                       </div>

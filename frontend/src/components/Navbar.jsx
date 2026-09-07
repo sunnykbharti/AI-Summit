@@ -15,6 +15,13 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { prefetch } from "../api/Api.jsx";
+
+const PREFETCH_MAP = {
+  "/dashboard": ["/dashboard/summary", "/dashboard/recent_sessions", "/dashboard/weekly"],
+  "/sessions": ["/sessions"],
+  "/leaderboard": ["/pose/leaderboard?period=all_time"],
+};
 
 const Navbar = () => {
   const navigate = useNavigate();
@@ -27,6 +34,13 @@ const Navbar = () => {
     localStorage.removeItem("token");
     setMobileMenuOpen(false);
     navigate("/login");
+  };
+
+  const handlePrefetch = (path) => {
+    const urls = PREFETCH_MAP[path];
+    if (urls) {
+      urls.forEach((url) => prefetch(url));
+    }
   };
 
   const navItems = [
@@ -49,6 +63,7 @@ const Navbar = () => {
             to="/dashboard"
             className="group flex items-center gap-3"
             onClick={() => setMobileMenuOpen(false)}
+            onMouseEnter={() => handlePrefetch("/dashboard")}
           >
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-cyan-300/40 blur-lg group-hover:bg-cyan-400/60 transition" />
@@ -76,6 +91,8 @@ const Navbar = () => {
                 <Link
                   key={item.to}
                   to={item.to}
+                  onMouseEnter={() => handlePrefetch(item.to)}
+                  onTouchStart={() => handlePrefetch(item.to)}
                   className={`group relative flex items-center gap-2 rounded-xl px-3 py-2 text-xs xl:text-sm font-semibold transition-all duration-200 ${
                     active
                       ? "bg-cyan-50 text-cyan-700 border border-cyan-200 shadow-sm"
@@ -132,6 +149,7 @@ const Navbar = () => {
                   key={item.to}
                   to={item.to}
                   onClick={() => setMobileMenuOpen(false)}
+                  onTouchStart={() => handlePrefetch(item.to)}
                   className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
                     active
                       ? "bg-cyan-50 text-cyan-700 border border-cyan-200"

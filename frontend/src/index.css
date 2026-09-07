@@ -82,11 +82,11 @@ body {
   animation: wy-glow-pulse 3s ease-in-out infinite;
 }
 
-/* Card entrance stagger */
+/* Card entrance stagger - fast & crisp */
 @keyframes wy-card-enter {
   0% {
     opacity: 0;
-    transform: translateY(40px) scale(0.96);
+    transform: translateY(12px) scale(0.99);
   }
   100% {
     opacity: 1;
@@ -95,26 +95,26 @@ body {
 }
 
 .wy-card-enter {
-  animation: wy-card-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: wy-card-enter 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.wy-card-enter-1 { animation-delay: 0.1s; }
-.wy-card-enter-2 { animation-delay: 0.25s; }
-.wy-card-enter-3 { animation-delay: 0.4s; }
+.wy-card-enter-1 { animation-delay: 0.03s; }
+.wy-card-enter-2 { animation-delay: 0.06s; }
+.wy-card-enter-3 { animation-delay: 0.09s; }
 
 /* Fade-in up */
 @keyframes wy-fade-up {
-  0% { opacity: 0; transform: translateY(30px); }
+  0% { opacity: 0; transform: translateY(10px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
 .wy-fade-up {
-  animation: wy-fade-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: wy-fade-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.wy-fade-up-1 { animation-delay: 0.05s; }
-.wy-fade-up-2 { animation-delay: 0.15s; }
-.wy-fade-up-3 { animation-delay: 0.3s; }
+.wy-fade-up-1 { animation-delay: 0.02s; }
+.wy-fade-up-2 { animation-delay: 0.05s; }
+.wy-fade-up-3 { animation-delay: 0.08s; }
 
 /* Slow rotate for decorative rings */
 @keyframes wy-slow-spin {

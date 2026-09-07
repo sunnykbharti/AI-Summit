@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../api/Api";
+import api, { fetchLeaderboardData } from "../api/Api";
 import {
   Trophy,
   Medal,
@@ -95,12 +95,12 @@ const Leaderboard = () => {
 
   const fetchLeaderboard = async () => {
     try {
-      const res = await api.get(`/pose/leaderboard?period=${period}`);
-      if (res.data?.leaderboard?.length) {
-        setLeaderboard(res.data.leaderboard);
+      const data = await fetchLeaderboardData(period);
+      if (data?.leaderboard?.length) {
+        setLeaderboard(data.leaderboard);
       }
-      if (res.data?.current_user) {
-        setCurrentUserRank(res.data.current_user);
+      if (data?.current_user) {
+        setCurrentUserRank(data.current_user);
       }
     } catch {
       // Fallback silently remains on demo data

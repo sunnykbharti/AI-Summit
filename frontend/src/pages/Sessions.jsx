@@ -26,7 +26,7 @@ import {
   Lightbulb,
 } from "lucide-react";
 
-import api from "../api/Api";
+import api, { fetchSessionsList, invalidateCache } from "../api/Api";
 
 const DEFAULT_SESSIONS = [
   { id: 1, pose: "Squat", score: 94, repetitions: 24, duration: 320, status: "Completed", date: new Date().toISOString() },
@@ -47,25 +47,20 @@ const Sessions = () => {
   const [filterStatus, setFilterStatus] = useState("All");
 
   // ============================================================
-  // FETCH SESSIONS
+  // FETCH SESSIONS (SWR CACHED - 0ms on page switch)
   // ============================================================
 
   useEffect(() => {
     fetchSessions();
   }, []);
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (force = false) => {
     try {
       setError("");
-
-      const response = await api.get("/sessions");
-
-      const data = Array.isArray(response.data)
-        ? response.data
-        : response.data.sessions || [];
-
-      if (data.length > 0) {
-        setSessions(data);
+      const data = await fetchSessionsList(force);
+      const list = Array.isArray(data) ? data : data?.sessions || [];
+      if (list.length > 0) {
+        setSessions(list);
       }
     } catch (err) {
       console.warn("Using offline demo sessions:", err?.message);
@@ -85,6 +80,8 @@ const Sessions = () => {
 
     try {
       await api.delete(`/sessions/${id}`);
+      invalidateCache("/sessions");
+      invalidateCache("/dashboard");
 
       setSessions((previous) =>
         previous.filter((session) => session.id !== id)
