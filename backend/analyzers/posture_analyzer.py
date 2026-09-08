@@ -2,6 +2,10 @@ import cv2
 import numpy as np
 from collections import deque
 from ultralytics import YOLO
+try:
+    from analyzers.device_utils import load_yolo_model
+except ImportError:
+    from device_utils import load_yolo_model
 
 NOSE = 0
 LEFT_SHOULDER, RIGHT_SHOULDER = 5, 6
@@ -30,10 +34,7 @@ class PostureAnalyzer:
     """
 
     def __init__(self, model_path="yolo11n-pose.pt"):
-        try:
-            self.model = YOLO(model_path)
-        except Exception:
-            self.model = YOLO("yolov8n-pose.pt")
+        self.model, self.device = load_yolo_model(model_path)
 
         self.lean_history = deque(maxlen=SMOOTHING_WINDOW)
         self.good_frames = 0
@@ -42,7 +43,7 @@ class PostureAnalyzer:
 
     def process_frame(self, frame):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.model(frame_rgb, verbose=False)
+        results = self.model(frame_rgb, device=self.device, verbose=False)
         output_rgb = results[0].plot(labels=False, conf=False)
         output_bgr = cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR)
 

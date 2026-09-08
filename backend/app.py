@@ -106,7 +106,15 @@ def serve_spa(path):
 # ── health check & direct aliases ───────────────────────────────────────────
 @app.route('/api/health')
 def health():
-    return jsonify({"status": "ok", "app": "PostureTrek API"})
+    from device_utils import get_best_device, get_device_name
+    dev = get_best_device()
+    return jsonify({
+        "status": "ok",
+        "app": "PostureTrek API",
+        "device": dev,
+        "device_name": get_device_name(),
+        "gpu_accelerated": dev in ("cuda", "mps"),
+    })
 
 @app.route('/leaderboard', methods=['GET'])
 @app.route('/api/leaderboard', methods=['GET'])
@@ -116,6 +124,7 @@ def direct_leaderboard():
 
 # ── run ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
+    from device_utils import get_best_device, get_device_name
     host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('FLASK_PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'True').lower() in ('true', '1', 't')
@@ -130,12 +139,18 @@ if __name__ == '__main__':
     except Exception:
         pass
 
+    active_dev = get_best_device()
+    dev_name = get_device_name()
+    gpu_status = "ENABLED ⚡" if active_dev in ("cuda", "mps") else "DISABLED (CPU)"
+
     print("\n" + "=" * 55)
     print(" 🚀 PostureTrek Backend Server")
     print("=" * 55)
     print(f" Local:   http://127.0.0.1:{port}")
     print(f" Network: http://{local_ip}:{port} (accessible on local WiFi)")
     print(f" Binding: http://{host}:{port}")
+    print(f" Hardware Acceleration: {gpu_status}")
+    print(f" Compute Engine:        {dev_name} (device='{active_dev}')")
     print("=" * 55 + "\n")
 
     app.run(host=host, port=port, debug=debug)

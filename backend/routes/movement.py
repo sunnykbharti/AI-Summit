@@ -1,4 +1,5 @@
 import base64
+import json
 import numpy as np
 import cv2
 from datetime import datetime
@@ -20,6 +21,10 @@ from ai_summarizer import ai_summarizer
 
 from analyzers.bodymap import BodyMapCalibrator, draw_calibration_hud, BodyMode, BodyMap
 from ultralytics import YOLO
+try:
+    from device_utils import load_yolo_model, get_best_device
+except ImportError:
+    from analyzers.device_utils import load_yolo_model, get_best_device
 
 movement_bp = Blueprint('movement', __name__, url_prefix='/api/pose')
 
@@ -53,17 +58,15 @@ _active = {
 
 _calibrator = BodyMapCalibrator(duration=3.0)
 _calib_model = None
+_calib_device = None
 _expression_analyzer = FacialExpressionAnalyzer()
 
 
 def get_calibration_model():
-    global _calib_model
+    global _calib_model, _calib_device
     if _calib_model is None:
-        try:
-            _calib_model = YOLO("yolo11n-pose.pt")
-        except Exception:
-            _calib_model = YOLO("yolov8n-pose.pt")
-    return _calib_model
+        _calib_model, _calib_device = load_yolo_model("yolo11n-pose.pt")
+    return _calib_model, _calib_device
 
 
 @movement_bp.route('/calibrate_start', methods=['POST'])
@@ -112,9 +115,9 @@ def calibrate_frame():
         return jsonify({"error": "empty frame"}), 400
 
     # Run pose detector
-    model = get_calibration_model()
+    model, calib_device = get_calibration_model()
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = model(frame_rgb, verbose=False)
+    results = model(frame_rgb, device=calib_device, verbose=False)
 
     keypoint_data = results[0].keypoints.data
     kps = None
@@ -133,7 +136,7 @@ def calibrate_frame():
     annotated_bgr = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
     annotated_with_hud = draw_calibration_hud(annotated_bgr, progress, detected_groups)
 
-    ok, buffer = cv2.imencode(".jpg", annotated_with_hud, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    ok, buffer = cv2.imencode(".jpg", annotated_with_hud, [cv2.IMWRITE_JPEG_QUALITY, 60])
     if not ok:
         return jsonify({"error": "could not encode output"}), 500
 
@@ -258,7 +261,7 @@ def analyze_frame():
                 "drowsy": expression_data.get("drowsiness_warning", False),
             })
 
-    ok, buffer = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    ok, buffer = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, 55])
     if not ok:
         return jsonify({"error": "could not encode output"}), 500
 
@@ -470,6 +473,7 @@ def stop_exercise():
         "accuracy": summary.get("accuracy", 85.0),
         "feedback": ai_summary_text,
         "ai_report": ai_report,
+        "step_analysis": summary.get("step_analysis", []),
         "session_id": session_id,
         "body_map": _active.get("body_map"),
         "expression_summary": expression_summary,

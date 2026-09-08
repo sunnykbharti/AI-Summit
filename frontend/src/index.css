@@ -44,6 +44,11 @@ body {
   background: var(--wy-bg-primary);
 }
 
+/* Remove navbar when an exercise is chosen on camera feed */
+body.camera-feed-active nav {
+  display: none !important;
+}
+
 .font-display {
   font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
 }

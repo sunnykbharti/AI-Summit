@@ -14,6 +14,7 @@ import {
   Clock3,
   Dumbbell,
   Flame,
+  FlipHorizontal,
   Gauge,
   HeartPulse,
   Info,
@@ -59,9 +60,42 @@ const BotViewerSkeleton = () => (
   </div>
 );
 
-// Frame analysis intervals (ms)
-const ANALYSIS_INTERVAL_MS = 200;
-const CALIBRATION_INTERVAL_MS = 150;
+// Frame analysis intervals (ms) - optimized for low latency real-time streaming
+const ANALYSIS_INTERVAL_MS = 75;
+const CALIBRATION_INTERVAL_MS = 90;
+
+// High-speed frame capture helper:
+// Downscales to max 640px dimension, avoids repeated canvas reallocations,
+// uses willReadFrequently, and compresses at 0.58 quality to cut transfer payload by >85%.
+const captureOptimizedFrame = (video, canvas, maxDimension = 640, quality = 0.58) => {
+  if (!video || !canvas || video.readyState < 2) return null;
+  const vw = video.videoWidth || 640;
+  const vh = video.videoHeight || 480;
+
+  let targetW = vw;
+  let targetH = vh;
+  if (targetW > maxDimension || targetH > maxDimension) {
+    if (targetW >= targetH) {
+      targetH = Math.round((vh / vw) * maxDimension);
+      targetW = maxDimension;
+    } else {
+      targetW = Math.round((vw / vh) * maxDimension);
+      targetH = maxDimension;
+    }
+  }
+
+  targetW = targetW % 2 === 0 ? targetW : targetW - 1;
+  targetH = targetH % 2 === 0 ? targetH : targetH - 1;
+
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0, targetW, targetH);
+  return canvas.toDataURL("image/jpeg", quality);
+};
 
 // Centralized Category Color Theme Mapping
 const CATEGORY_THEMES = {
@@ -168,6 +202,23 @@ const PoseAnalysis = ({ initialExercise }) => {
     }
   }, [queryExercise]);
 
+  // Remove app navbar when an exercise is chosen / on camera feed
+  useEffect(() => {
+    if (isFullWindow) {
+      document.body.classList.add("camera-feed-active");
+    } else {
+      document.body.classList.remove("camera-feed-active");
+    }
+    return () => {
+      document.body.classList.remove("camera-feed-active");
+    };
+  }, [isFullWindow]);
+
+  const handleExitCameraFeed = () => {
+    setIsFullWindow(false);
+    navigate("/pose-analysis", { replace: true });
+  };
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -178,6 +229,11 @@ const PoseAnalysis = ({ initialExercise }) => {
 
   const [cameraActive, setCameraActive] = useState(false);
   const [analysisRunning, setAnalysisRunning] = useState(false);
+  const analysisRunningRef = useRef(false);
+
+  useEffect(() => {
+    analysisRunningRef.current = analysisRunning;
+  }, [analysisRunning]);
   const [loading, setLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [reps, setReps] = useState(0);
@@ -186,6 +242,26 @@ const PoseAnalysis = ({ initialExercise }) => {
   const [instruction, setInstruction] = useState("कैमरे के सामने सीधे खड़े हों और फ्रेम में आएं।");
   const [instructionType, setInstructionType] = useState("info"); // "info" | "success" | "error"
   const [bodyStatus, setBodyStatus] = useState("तैयार (Ready)");
+
+  // Mirror / Flip Video state (persisted to localStorage)
+  const [isMirrored, setIsMirrored] = useState(() => {
+    try {
+      const saved = localStorage.getItem("posecare_mirror_video");
+      return saved !== null ? saved === "true" : true;
+    } catch (_) {
+      return true;
+    }
+  });
+
+  const toggleMirror = () => {
+    setIsMirrored((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("posecare_mirror_video", String(next));
+      } catch (_) {}
+      return next;
+    });
+  };
   
   // Surya Namaskar active step tracking & Auto-Advance Flow
   const [suryaStepNum, setSuryaStepNum] = useState(1);
@@ -271,7 +347,9 @@ const PoseAnalysis = ({ initialExercise }) => {
   }, [isFullWindow, cameraActive]);
 
   // Clean verbal instruction synthesizer (speaks naturally in Hindi / Indian accent)
-  const speakFeedback = (text) => {
+  const speakFeedback = (text, force = false) => {
+    // Voice assistant should ONLY speak when AI analysis is actively running
+    if (!force && !analysisRunningRef.current) return;
     if (!speechEnabled || !("speechSynthesis" in window) || !text) return;
 
     let cleanText = text
@@ -350,7 +428,7 @@ const PoseAnalysis = ({ initialExercise }) => {
       instruction ||
       currentExercise?.steps?.[0] ||
       "कैमरे के सामने सही पोस्चर में सीधे खड़े रहें।";
-    speakFeedback(textToSpeak);
+    speakFeedback(textToSpeak, true);
   };
 
   // ============================================================
@@ -430,10 +508,16 @@ const PoseAnalysis = ({ initialExercise }) => {
       return;
     }
 
+    const strengthsText = report.key_strengths?.length
+      ? `आपकी मुख्य ताकत: ${report.key_strengths.join(". ")}.`
+      : "";
+
     const mistakesText = report.mistakes_analysis?.mistakes_list?.length
       ? `सत्र में देखी गई गलतियां: ${report.mistakes_analysis.mistakes_list.map((m) => m.name).join(". ")}.`
-      : report.areas_for_improvement?.length
-      ? `सुधार के मुख्य बिंदु: ${report.areas_for_improvement.join(". ")}.`
+      : "";
+
+    const focusText = (report.focus_areas || report.areas_for_improvement)?.length
+      ? `अगले सत्र के लिए मुख्य फोकस: ${(report.focus_areas || report.areas_for_improvement).join(". ")}.`
       : "";
 
     const drillsText = report.corrective_exercises?.drills?.length
@@ -443,7 +527,9 @@ const PoseAnalysis = ({ initialExercise }) => {
     const parts = [
       report.headline || "",
       report.what_you_did?.summary_text || report.overview || "",
+      strengthsText,
       mistakesText,
+      focusText,
       drillsText,
       report.safety_note ? `सुरक्षा सलाह: ${report.safety_note}` : "",
       report.recovery_recommendation ? `रिकवरी सलाह: ${report.recovery_recommendation}` : "",
@@ -813,7 +899,6 @@ const PoseAnalysis = ({ initialExercise }) => {
       const calibCue = "बॉडी कैलिब्रेशन शुरू हो रहा है... पूरे शरीर के साथ कैमरे के सामने सीधे खड़े रहें।";
       setInstruction(calibCue);
       setInstructionType("info");
-      speakFeedback(calibCue);
 
       await api.post("/pose/calibrate_start", { duration: 3.0 });
 
@@ -827,13 +912,8 @@ const PoseAnalysis = ({ initialExercise }) => {
       calibIntervalRef.current = setInterval(async () => {
         const video = videoRef.current;
         const canvas = canvasRef.current;
-        if (!video || !canvas || video.readyState < 2) return;
-
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = canvas.toDataURL("image/jpeg", 0.7);
+        const imageData = captureOptimizedFrame(video, canvas, 640, 0.6);
+        if (!imageData) return;
 
         try {
           const res = await api.post("/pose/calibrate_frame", {
@@ -866,7 +946,6 @@ const PoseAnalysis = ({ initialExercise }) => {
                   : "बॉडी कैलिब्रेशन पूरा हुआ। आपका बॉडी मैप तैयार है।";
               setInstruction(successCue);
               setInstructionType("success");
-              speakFeedback(successCue);
             }
           }
         } catch (err) {
@@ -908,16 +987,10 @@ const PoseAnalysis = ({ initialExercise }) => {
     if (isSendingFrameRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState < 2) return;
+    const imageData = captureOptimizedFrame(video, canvas, 640, 0.58);
+    if (!imageData) return;
 
     isSendingFrameRef.current = true;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = canvas.toDataURL("image/jpeg", 0.7);
-
     const controller = new AbortController();
     frameAbortRef.current = controller;
 
@@ -1037,12 +1110,13 @@ const PoseAnalysis = ({ initialExercise }) => {
         body_map: bodyMap,
       });
 
+      analysisRunningRef.current = true;
       setAnalysisRunning(true);
       setSessionResult(null); // Clear previous pop-up
       const startCue = `${currentExercise.name} शुरू हो रहा है। ${currentExercise.steps?.[0] || "मूवमेंट शुरू करें।"}`;
       setInstruction(startCue);
       setInstructionType("success");
-      speakFeedback(startCue);
+      speakFeedback(startCue, true);
 
       if (captureIntervalRef.current) {
         clearInterval(captureIntervalRef.current);
@@ -1064,6 +1138,15 @@ const PoseAnalysis = ({ initialExercise }) => {
   // STOP ANALYSIS -> OPENS REPORT AS POP-UP MODAL INSTANTLY!
   // ============================================================
   const stopAnalysis = async () => {
+    // Immediately stop voice assistant as soon as stop button is clicked
+    analysisRunningRef.current = false;
+    setAnalysisRunning(false);
+    setIsSpeakingVoice(false);
+    setIsSpeakingReport(false);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+
     if (captureIntervalRef.current) {
       clearInterval(captureIntervalRef.current);
       captureIntervalRef.current = null;
@@ -1089,7 +1172,9 @@ const PoseAnalysis = ({ initialExercise }) => {
       console.log("Session result:", response.data);
       // Triggers the pop-up modal immediately!
       setSessionResult(response.data);
-      speakFeedback("वर्कआउट पूरा हुआ। आपकी बायोमैकेनिक्स रिपोर्ट तैयार है।");
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
 
       // Optional gentle background check if LLM enrichment completes while modal is open
       if (response.data?.session_id) {
@@ -1121,10 +1206,14 @@ const PoseAnalysis = ({ initialExercise }) => {
         body_map: bodyMap,
       });
     } finally {
+      analysisRunningRef.current = false;
       setAnalysisRunning(false);
       setBodyStatus("पूर्ण (Done)");
       setLoading(false);
       setAnnotatedFrame(null);
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
     }
   };
 
@@ -1206,6 +1295,7 @@ const PoseAnalysis = ({ initialExercise }) => {
     }
     setIsFullWindow(true);
     setSessionResult(null);
+    navigate(`/pose-analysis?exercise=${exerciseId}`, { replace: true });
 
     const target = exercises.find((item) => item.id === exerciseId);
     const cue = target?.name
@@ -1217,7 +1307,6 @@ const PoseAnalysis = ({ initialExercise }) => {
     if (!cameraActive) {
       startCamera();
     }
-    speakFeedback(cue);
   };
 
   // ============================================================
@@ -1247,13 +1336,13 @@ const PoseAnalysis = ({ initialExercise }) => {
           1. VIDEO FEED PAGE (IN CLEAN LIGHT MODE)
       ======================================================== */}
       {isFullWindow ? (
-        <div className="fixed inset-0 z-40 flex flex-col bg-[#f8fafc] text-slate-900 select-none overflow-hidden">
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#f8fafc] text-slate-900 select-none overflow-hidden">
           {/* Light Mode Studio Header */}
           <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur-xl sm:px-6 shadow-2xs">
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setIsFullWindow(false)}
+                onClick={handleExitCameraFeed}
                 className="flex items-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 text-xs font-bold transition shadow-2xs"
                 title="एक्सरसाइज लिस्ट पर वापस जाएं"
               >
@@ -1383,6 +1472,21 @@ const PoseAnalysis = ({ initialExercise }) => {
                 <span className="hidden md:inline">{speechEnabled ? "आवाज ऑन" : "म्यूट"}</span>
               </button>
 
+              {/* Mirror / Flip Camera Toggle */}
+              <button
+                type="button"
+                onClick={toggleMirror}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                  isMirrored
+                    ? "bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100 shadow-2xs"
+                    : "bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200"
+                }`}
+                title={isMirrored ? "मिरर व्यू बंद करें (Normal View)" : "मिरर व्यू चालू करें (Mirror View)"}
+              >
+                <FlipHorizontal size={15} className={isMirrored ? "text-purple-600" : "text-slate-500"} />
+                <span className="hidden md:inline">{isMirrored ? "मिरर ऑन" : "मिरर ऑफ"}</span>
+              </button>
+
               {/* Camera Toggle */}
               {cameraActive ? (
                 <button
@@ -1410,7 +1514,7 @@ const PoseAnalysis = ({ initialExercise }) => {
               {/* Close Full Window */}
               <button
                 type="button"
-                onClick={() => setIsFullWindow(false)}
+                onClick={handleExitCameraFeed}
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition hover:bg-slate-200"
                 title="फुल विंडो बंद करें"
               >
@@ -1431,6 +1535,7 @@ const PoseAnalysis = ({ initialExercise }) => {
                 autoPlay
                 playsInline
                 muted
+                style={{ transform: isMirrored ? "scaleX(-1)" : "none" }}
                 className={`h-full w-full object-contain ${cameraActive ? "block" : "hidden"}`}
               />
 
@@ -1439,6 +1544,7 @@ const PoseAnalysis = ({ initialExercise }) => {
                 <img
                   src={annotatedFrame}
                   alt="AI Pose Kinematics"
+                  style={{ transform: isMirrored ? "scaleX(-1)" : "none" }}
                   className="absolute inset-0 h-full w-full object-contain pointer-events-none"
                 />
               )}
@@ -1771,20 +1877,40 @@ const PoseAnalysis = ({ initialExercise }) => {
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-black uppercase tracking-wider text-cyan-800">
-                        लाइव निर्देश (Voice Guidance)
+                        {selectedExercise === "suryanamaskar"
+                          ? `सूर्य नमस्कार • चरण ${suryaStepNum}/12`
+                          : "लाइव निर्देश (Voice Guidance)"}
                       </span>
+                      {selectedExercise === "suryanamaskar" && SURYA_STEPS[suryaStepNum - 1]?.mantra && (
+                        <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900 font-serif">
+                          {SURYA_STEPS[suryaStepNum - 1].mantra}
+                        </span>
+                      )}
+                      {selectedExercise === "suryanamaskar" && SURYA_STEPS[suryaStepNum - 1]?.breath && (
+                        <span className="rounded-md bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-800">
+                          {SURYA_STEPS[suryaStepNum - 1].breath.split(" ")[0]}
+                        </span>
+                      )}
                     </div>
                     <p className="mt-0.5 text-sm sm:text-base font-black text-slate-900 leading-snug drop-shadow-2xs truncate sm:whitespace-normal">
-                      {instruction || currentExercise.steps?.[0] || "कैमरे के सामने सही पोस्चर बनाए रखें।"}
+                      {instruction ||
+                        (selectedExercise === "suryanamaskar"
+                          ? `${SURYA_STEPS[suryaStepNum - 1]?.name_hi} - ${SURYA_STEPS[suryaStepNum - 1]?.cue}`
+                          : currentExercise.steps?.[0] || "कैमरे के सामने सही पोस्चर बनाए रखें।")}
                     </p>
-                    {currentExercise.steps?.[0] && (
+                    {selectedExercise === "suryanamaskar" ? (
+                      <p className="mt-1 text-xs text-slate-600 flex items-center gap-1.5 line-clamp-1">
+                        <span className="font-bold text-amber-800">अलाइनमेंट:</span>
+                        <span>{SURYA_STEPS[suryaStepNum - 1]?.alignmentTips?.[0] || "सही संतुलन बनाए रखें"}</span>
+                      </p>
+                    ) : currentExercise.steps?.[0] ? (
                       <p className="mt-1 text-xs text-slate-500 flex items-center gap-1.5 line-clamp-1">
                         <span className="font-bold text-slate-700">चरण (Step):</span>
                         <span>{currentExercise.steps[0]}</span>
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -1897,7 +2023,7 @@ const PoseAnalysis = ({ initialExercise }) => {
 
                   <button
                     type="button"
-                    onClick={() => setIsFullWindow(false)}
+                    onClick={handleExitCameraFeed}
                     className="flex items-center gap-1.5 rounded-xl bg-slate-800 px-3.5 py-2.5 text-xs font-bold text-white transition hover:bg-slate-900 shadow-2xs"
                   >
                     <Minimize2 size={15} />
@@ -2287,12 +2413,239 @@ const PoseAnalysis = ({ initialExercise }) => {
                   </button>
                 </div>
 
-                {/* 1. क्या-क्या किया (What All You Did) */}
+                {/* 1. आपकी ताकत और मजबूत पक्ष (Key Strengths & Highlights) */}
+                <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white p-4 sm:p-5 shadow-2xs">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2 text-emerald-950 font-black text-xs uppercase tracking-wider">
+                      <Award size={16} className="text-emerald-600" />
+                      1. आपकी ताकत और मजबूत पक्ष (Key Strengths & Mastery)
+                    </div>
+                    <span className="rounded-full bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-black text-emerald-800">
+                      मजबूत पहलू
+                    </span>
+                  </div>
+
+                  {sessionResult.ai_report.key_strengths && sessionResult.ai_report.key_strengths.length > 0 ? (
+                    <div className="space-y-2">
+                      {sessionResult.ai_report.key_strengths.map((str, idx) => (
+                        <div key={idx} className="flex items-start gap-2.5 rounded-xl bg-white/90 p-3 border border-emerald-100 shadow-2xs">
+                          <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <span className="text-xs sm:text-sm text-slate-800 font-semibold leading-relaxed">
+                            {str}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-white p-3 text-xs text-emerald-800 font-semibold flex items-center gap-2 border border-emerald-100">
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                      पूरे सत्र के दौरान एकाग्रता, स्थिर जॉइंट अलाइनमेंट और निरंतर प्रयास बनाए रखा।
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. क्या-क्या गलतियां हुईं और उनके कारण (Mistakes & Biomechanical Causes) */}
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 text-amber-950 font-black text-xs uppercase tracking-wider">
+                      <AlertTriangle size={16} className="text-amber-600" />
+                      2. क्या-क्या गलतियां हुईं और उनके बायोमैकेनिकल कारण (Mistakes Observed)
+                    </div>
+                    <span className="rounded-full bg-amber-100 border border-amber-200 px-2.5 py-0.5 text-[10px] font-bold text-amber-800">
+                      सुधार की जरूरत
+                    </span>
+                  </div>
+
+                  {sessionResult.ai_report.mistakes_analysis?.mistakes_list?.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {sessionResult.ai_report.mistakes_analysis.mistakes_list.map((m, idx) => (
+                        <div key={idx} className="rounded-xl border border-amber-200/80 bg-white p-3.5 shadow-2xs">
+                          <div className="flex items-center gap-2 text-xs font-black text-slate-900">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                              {idx + 1}
+                            </span>
+                            <span>{m.name}</span>
+                          </div>
+                          <p className="mt-1.5 pl-7 text-xs text-slate-600 leading-relaxed">
+                            <strong className="text-amber-900 font-bold">बायोमैकेनिकल कारण: </strong>
+                            {m.reason}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-white p-3.5 text-xs text-emerald-800 font-semibold flex items-center gap-2 border border-emerald-200">
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                      कोई गंभीर बायोमैकेनिकल त्रुटि नहीं मिली — आपका फॉर्म और जॉइंट अलाइनमेंट बहुत संतुलित रहा।
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. अगले सत्र के लिए मुख्य फोकस (Where You Should Focus Upon) */}
+                <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/70 to-blue-50/40 p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 text-indigo-950 font-black text-xs uppercase tracking-wider">
+                      <Target size={16} className="text-indigo-600" />
+                      3. अगले सत्र के लिए मुख्य फोकस (Where You Should Focus Upon)
+                    </div>
+                    <span className="rounded-full bg-indigo-100 border border-indigo-200 px-2.5 py-0.5 text-[10px] font-bold text-indigo-800">
+                      फोकस पॉइंट्स
+                    </span>
+                  </div>
+
+                  {(sessionResult.ai_report.focus_areas || sessionResult.ai_report.areas_for_improvement)?.length > 0 ? (
+                    <div className="space-y-2">
+                      {(sessionResult.ai_report.focus_areas || sessionResult.ai_report.areas_for_improvement).map((focusItem, idx) => (
+                        <div key={idx} className="flex items-start gap-2.5 rounded-xl bg-white p-3 border border-indigo-100 shadow-2xs">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white text-[10px] font-bold mt-0.5">
+                            {idx + 1}
+                          </span>
+                          <span className="text-xs sm:text-sm text-slate-800 font-semibold leading-relaxed">
+                            {focusItem}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-white p-3 text-xs text-slate-700 border border-indigo-100">
+                      अगले सत्र में प्रत्येक मूवमेंट में 2-3 सेकंड की स्थिरता (Hold Quality) बढ़ाने पर ध्यान दें।
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. सूर्य नमस्कार 12-चरण विस्तृत रिपोर्ट (Surya Namaskar 12-Step Performance Breakdown) */}
+                {(sessionResult.exercise === "suryanamaskar" ||
+                  sessionResult.exercise === "surya_namaskar" ||
+                  (sessionResult.step_analysis && sessionResult.step_analysis.length > 0) ||
+                  (sessionResult.ai_report?.step_analysis && sessionResult.ai_report.step_analysis.length > 0)) && (
+                  <div className="rounded-2xl border border-amber-300/80 bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-white p-4 sm:p-5 shadow-2xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5">
+                      <div className="flex items-center gap-2 text-amber-950 font-black text-xs uppercase tracking-wider">
+                        <Sparkles size={16} className="text-amber-600" />
+                        4. सूर्य नमस्कार 12-चरण विस्तृत रिपोर्ट (Per-Step Accuracy & Sequence Flow)
+                      </div>
+                      {sessionResult.step_analysis && (
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                            {sessionResult.step_analysis.filter((s) => !s.is_skipped).length}/12 पूरे
+                          </span>
+                          {sessionResult.step_analysis.some((s) => s.is_skipped) && (
+                            <span className="rounded-full bg-rose-100 border border-rose-300 px-2.5 py-0.5 text-[10px] font-black text-rose-800">
+                              {sessionResult.step_analysis.filter((s) => s.is_skipped).length} स्किप
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {((sessionResult.step_analysis && sessionResult.step_analysis.length > 0
+                        ? sessionResult.step_analysis
+                        : sessionResult.ai_report?.step_analysis) || []).map((step, idx) => {
+                        const isSkipped = Boolean(step.is_skipped || step.status === "skipped");
+                        const isCorrect = !isSkipped && (step.status === "correct" || step.accuracy >= 70);
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`rounded-xl p-3.5 transition shadow-2xs ${
+                              isSkipped
+                                ? "border-2 border-rose-300 bg-rose-50/95 ring-1 ring-rose-200"
+                                : isCorrect
+                                ? "border border-emerald-200 bg-emerald-50/70"
+                                : "border border-amber-200 bg-amber-50/70"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                                    isSkipped
+                                      ? "bg-rose-600 text-white shadow-xs"
+                                      : isCorrect
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-amber-500 text-slate-950 font-black"
+                                  }`}
+                                >
+                                  {step.step_number || idx + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <h4 className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                                    {step.name}
+                                  </h4>
+                                  {step.english_name && (
+                                    <div className="text-[10px] text-slate-500 font-medium truncate">
+                                      {step.english_name}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Accuracy Badge */}
+                              <span
+                                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-black border ${
+                                  isSkipped
+                                    ? "bg-rose-100 border-rose-300 text-rose-800"
+                                    : step.accuracy >= 75
+                                    ? "bg-emerald-100 border-emerald-300 text-emerald-800"
+                                    : "bg-amber-100 border-amber-300 text-amber-800"
+                                }`}
+                              >
+                                {step.accuracy || 0}% सटीकता
+                              </span>
+                            </div>
+
+                            {/* Status & Issues Details */}
+                            <div className="mt-2.5 flex items-center justify-between gap-2 flex-wrap">
+                              {isSkipped ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-xs">
+                                  ❌ स्किप किया गया (Skipped)
+                                </span>
+                              ) : isCorrect ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                                  ✅ सही फॉर्म (Optimal)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-slate-950 shadow-xs">
+                                  ⚠️ फॉर्म सुधारें
+                                </span>
+                              )}
+
+                              {step.mantra && (
+                                <span className="text-[10px] font-serif font-bold text-amber-900/80">
+                                  {step.mantra}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Specific Step Mistake / Feedback Callout */}
+                            {isSkipped ? (
+                              <p className="mt-2 rounded-lg bg-white/90 p-2 text-xs font-semibold text-rose-800 border border-rose-200">
+                                यह चरण सत्र के दौरान छूट गया था। पूर्ण ऊर्जा और काइनेटिक निरंतरता के लिए अगले राउंड में इस चरण को स्किप न करें।
+                              </p>
+                            ) : step.issues && step.issues.length > 0 ? (
+                              <div className="mt-2 rounded-lg bg-white/90 p-2 text-xs text-amber-900 border border-amber-200 font-medium">
+                                <strong className="font-bold">कमियां: </strong>
+                                {step.issues.join(". ")}
+                              </div>
+                            ) : (
+                              <p className="mt-2 rounded-lg bg-white/80 p-2 text-xs text-emerald-800 border border-emerald-100 font-medium">
+                                सही पोस्चर, संतुलन और श्वास नियंत्रण के साथ पूरा हुआ।
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. सत्र का विस्तृत विवरण (Session Performance & Telemetry) */}
                 <div className="rounded-2xl border border-cyan-200/80 bg-gradient-to-br from-cyan-50/70 to-blue-50/50 p-4 sm:p-5">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-1.5 text-cyan-950 font-black text-xs uppercase tracking-wider">
                       <Brain size={16} className="text-cyan-600" />
-                      1. आपने क्या-क्या किया (Session Performance & Telemetry)
+                      5. सत्र का विस्तृत विवरण (Session Performance & Telemetry)
                     </div>
                     <span className="rounded-full bg-cyan-100 px-2.5 py-0.5 text-[10px] font-bold text-cyan-800">
                       {sessionResult.ai_report.what_you_did?.exercise_name || currentExercise.name}
@@ -2314,55 +2667,12 @@ const PoseAnalysis = ({ initialExercise }) => {
                   )}
                 </div>
 
-                {/* 2. क्या-क्या गलतियां हुईं और उनके कारण (Mistakes & Biomechanical Causes) */}
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-5">
-                  <div className="flex items-center gap-1.5 text-amber-950 font-black text-xs uppercase tracking-wider mb-3">
-                    <AlertTriangle size={16} className="text-amber-600" />
-                    2. क्या-क्या गलतियां हुईं और उनके बायोमैकेनिकल कारण (Mistakes Observed)
-                  </div>
-
-                  {sessionResult.ai_report.mistakes_analysis?.mistakes_list?.length > 0 ? (
-                    <div className="space-y-2.5">
-                      {sessionResult.ai_report.mistakes_analysis.mistakes_list.map((m, idx) => (
-                        <div key={idx} className="rounded-xl border border-amber-200/80 bg-white p-3 shadow-2xs">
-                          <div className="flex items-center gap-2 text-xs font-black text-slate-900">
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 text-[10px]">
-                              {idx + 1}
-                            </span>
-                            <span>{m.name}</span>
-                          </div>
-                          <p className="mt-1 pl-6 text-xs text-slate-600 leading-relaxed">
-                            <strong className="text-amber-900 font-semibold">कारण: </strong>
-                            {m.reason}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : sessionResult.ai_report.areas_for_improvement?.length > 0 ? (
-                    <ul className="space-y-2">
-                      {sessionResult.ai_report.areas_for_improvement.map((area, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-xs text-slate-800 font-medium">
-                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-900 text-[9px] font-bold">
-                            !
-                          </span>
-                          <span>{area}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="rounded-xl bg-white p-3 text-xs text-emerald-800 font-semibold flex items-center gap-2 border border-emerald-200">
-                      <CheckCircle2 size={16} className="text-emerald-600" />
-                      कोई गंभीर बायोमैकेनिकल त्रुटि नहीं मिली — आपका फॉर्म और जॉइंट अलाइनमेंट बहुत संतुलित रहा।
-                    </div>
-                  )}
-                </div>
-
-                {/* 3. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills) */}
+                {/* 6. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills) */}
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 sm:p-5">
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-1.5 text-emerald-950 font-black text-xs uppercase tracking-wider">
                       <Sparkles size={16} className="text-emerald-600" />
-                      3. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills)
+                      6. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills)
                     </div>
                     <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest bg-emerald-100 px-2 py-0.5 rounded-full">
                       सुझाए गए ड्रिल्स
@@ -2404,7 +2714,7 @@ const PoseAnalysis = ({ initialExercise }) => {
                   )}
                 </div>
 
-                {/* 4. सुरक्षा व रिकवरी सलाह (Safety & Recovery Protocol) */}
+                {/* 7. सुरक्षा व रिकवरी सलाह (Safety & Recovery Protocol) */}
                 {(sessionResult.ai_report.safety_note ||
                   sessionResult.ai_report.recovery_recommendation) && (
                   <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2.5 shadow-2xs">
@@ -2456,7 +2766,7 @@ const PoseAnalysis = ({ initialExercise }) => {
                 type="button"
                 onClick={() => {
                   setSessionResult(null);
-                  setIsFullWindow(false);
+                  handleExitCameraFeed();
                 }}
                 className="rounded-xl bg-slate-900 px-6 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition shadow-xs"
               >

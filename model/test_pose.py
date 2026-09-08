@@ -1,7 +1,8 @@
 from ultralytics import YOLO
+from device_utils import load_yolo_model
 import cv2
 
-model = YOLO("yolo11n-pose.pt")
+model, device = load_yolo_model("yolo11n-pose.pt")
 camera = cv2.VideoCapture(0)
 
 while True:
@@ -10,7 +11,7 @@ while True:
     if not success:
         break
 
-    results = model(frame, verbose=False)
+    results = model(frame, device=device, verbose=False)
 
     if len(results[0].keypoints) > 0:
         keypoints = results[0].keypoints.xy[0].cpu().numpy()

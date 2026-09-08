@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   Activity,
   Home,
@@ -27,7 +27,17 @@ const PREFETCH_MAP = {
 const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Remove the navbar when an exercise is chosen / on live camera feed
+  const isCameraFeed =
+    location.pathname === "/reaction-analysis" ||
+    (location.pathname === "/pose-analysis" && Boolean(searchParams.get("exercise")));
+
+  if (isCameraFeed) {
+    return null;
+  }
 
   const token = localStorage.getItem("token");
 

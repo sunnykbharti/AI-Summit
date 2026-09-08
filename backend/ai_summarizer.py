@@ -360,17 +360,59 @@ class AISummarizer:
             "भरपूर पानी पिएं और मांसपेशियों की रिकवरी के लिए 30 सेकंड का स्टैटिक स्ट्रेचिंग रूटीन अपनाएं।"
         )
 
-        # Formatted Markdown in Hindi
-        strengths_bullets = [
-            f"कुल {total_reps} रेप्स में से {correct_reps} रेप्स पूर्ण बायोमैकेनिकल नियंत्रण के साथ पूरे किए गए।",
-            f"काइनेटिक सटीकता {accuracy}% रही (ग्रेड {grade})।"
-        ]
+        step_analysis = summary_data.get("step_analysis", [])
 
+        # Dynamic Key Strengths based on actual performance
+        strengths_bullets = []
+        if exercise_type in ["suryanamaskar", "surya_namaskar"] and step_analysis:
+            perfect_steps = [s["name"] for s in step_analysis if s.get("status") == "correct" and s.get("accuracy", 0) >= 70]
+            if perfect_steps:
+                strengths_bullets.append(f"सटीक आसन मुद्रा: {', '.join(perfect_steps[:3])} में आपने उत्तम संतुलन और बायोमैकेनिकल स्थिरता बनाई।")
+            completed_count = len([s for s in step_analysis if not s.get("is_skipped")])
+            strengths_bullets.append(f"अनुक्रम प्रवाह: 12 में से {completed_count} आसनों का सफल प्रवाह पूरा किया।")
+            strengths_bullets.append("श्वास-प्रश्वास (Breath Sync) और रीढ़ के विस्तार में प्राकृतिक गतिशीलता दर्ज हुई।")
+        else:
+            if correct_reps > 0:
+                strengths_bullets.append(f"सटीक बायोमैकेनिक्स: कुल {correct_reps} रेप्स पूर्ण फॉर्म और निर्धारित जॉइंट सिमेट्री के साथ पूरे किए गए।")
+            if accuracy >= 75:
+                strengths_bullets.append(f"काइनेटिक स्थिरता: {accuracy}% सटीकता (ग्रेड {grade}) के साथ बॉडी अलाइनमेंट संतुलित रहा।")
+            else:
+                strengths_bullets.append("दृढ़ता और एकाग्रता: पूरे सेट के दौरान आपने सही फॉर्म प्राप्त करने का सतत प्रयास बनाए रखा।")
+            primary_muscle = target_muscles.split(",")[0] if target_muscles else "Core Muscles"
+            strengths_bullets.append(f"मसल एक्टिवेशन: लक्षित मांसपेशियों ({primary_muscle}) में प्रभावी न्यूरोमस्कुलर लोड दर्ज हुआ।")
+            strengths_bullets.append("नियंत्रित गति: मूवमेंट के दौरान अचानक झटके के बजाय स्थिर और सुरक्षित टेम्पो बनाए रखा।")
+
+        # Dynamic Focus Areas (Where you should focus upon)
+        focus_areas = []
+        if exercise_type in ["suryanamaskar", "surya_namaskar"] and step_analysis:
+            skipped_steps = [s["name"] for s in step_analysis if s.get("is_skipped")]
+            faulty_steps = [s for s in step_analysis if s.get("status") == "needs_improvement"]
+            if skipped_steps:
+                focus_areas.append(f"छूटे हुए चरण (Skipped): {', '.join(skipped_steps[:3])} को स्किप न करें ताकि 12 आसनों का पूर्ण शारीरिक व कार्डियोवैस्कुलर लाभ मिले।")
+            for fs in faulty_steps[:3]:
+                err_text = ", ".join(fs.get("issues", [])) or "अलाइनमेंट सुधार"
+                focus_areas.append(f"{fs['name']}: {err_text} पर ध्यान दें।")
+            if not focus_areas:
+                focus_areas.append("अगले सत्र में प्रत्येक आसन में 3-5 सेकंड की गहरी सांस के साथ होल्ड समय (Hold Duration) बढ़ाएं।")
+        else:
+            for m in mistakes_list:
+                if m["name"] != "कोई गंभीर बायोमैकेनिकल त्रुटि नहीं मिली":
+                    focus_areas.append(f"{m['name']}: {m['reason'].split('.')[0]}।")
+            if not focus_areas:
+                focus_areas.append("आपका फॉर्म अत्यधिक संतुलित है! अगले वर्कआउट में रेप्स की संख्या या होल्ड ड्यूरेशन 15% बढ़ाने पर ध्यान दें।")
+
+        # Formatted Markdown in Hindi
         mistakes_markdown = "\n".join(
             f"• **{m['name']}**: {m['reason']}" for m in mistakes_list
         )
         drills_markdown = "\n".join(
             f"• **{d['name']}** ({d['sets']}): {d['instruction']}" for d in corrective_drills
+        )
+        strengths_markdown = "\n".join(
+            f"• {s}" for s in strengths_bullets
+        )
+        focus_markdown = "\n".join(
+            f"• {f}" for f in focus_areas
         )
 
         formatted_text = (
@@ -379,9 +421,13 @@ class AISummarizer:
             f"📋 **1. आपने क्या-क्या किया (What You Did)**:\n"
             f"{what_you_did_text}\n"
             f"• **लक्षित मांसपेशियां**: {target_muscles}\n\n"
-            f"⚠️ **2. क्या-क्या गलतियां हुईं और उनके कारण (Mistakes Observed)**:\n"
+            f"🌟 **2. आपकी ताकत और मजबूत पक्ष (Key Strengths)**:\n"
+            f"{strengths_markdown}\n\n"
+            f"⚠️ **3. क्या-क्या गलतियां हुईं और उनके कारण (Mistakes Observed)**:\n"
             f"{mistakes_markdown}\n\n"
-            f"🛠️ **3. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills)**:\n"
+            f"🔍 **4. अगले सत्र के लिए मुख्य फोकस (Where You Should Focus)**:\n"
+            f"{focus_markdown}\n\n"
+            f"🛠️ **5. सुधार के लिए छोटी-छोटी सुधारात्मक एक्सरसाइज (Corrective Micro-Drills)**:\n"
             f"{drills_markdown}\n\n"
             f"🛡️ **सुरक्षा सलाह (Safety Note)**: {safety}\n\n"
             f"🧘 **रिकवरी व कूलडाउन (Recovery Protocol)**: {recovery}"
@@ -409,7 +455,9 @@ class AISummarizer:
                 "drills": corrective_drills,
             },
             "key_strengths": strengths_bullets,
-            "areas_for_improvement": [m["name"] for m in mistakes_list if m["name"] != "कोई गंभीर बायोमैकेनिकल त्रुटि नहीं मिली"],
+            "areas_for_improvement": focus_areas,
+            "focus_areas": focus_areas,
+            "step_analysis": step_analysis,
             "safety_note": safety,
             "recovery_recommendation": recovery,
             "formatted_text": formatted_text,
