@@ -86,6 +86,7 @@ from routes.dashboard import dashboard_bp
 from routes.sessions  import sessions_bp
 from routes.reports   import reports_bp
 from routes.profile   import profile_bp
+from routes.ask_ai    import ask_ai_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(movement_bp)
@@ -93,6 +94,7 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(sessions_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(profile_bp)
+app.register_blueprint(ask_ai_bp)
 
 # ── SPA catch-all (serves React app for all non-API routes) ─────────────────
 @app.route('/', defaults={'path': ''})

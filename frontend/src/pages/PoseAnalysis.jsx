@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, cloneElement } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   Activity,
+  AlertOctagon,
   AlertTriangle,
   ArrowLeft,
   Award,
@@ -35,8 +36,12 @@ import {
   UserCheck,
   Volume2,
   VolumeX,
+  Wind,
   X,
   XCircle,
+  Zap,
+  Compass,
+  Move,
 } from "lucide-react";
 
 import api, { invalidateCache } from "../api/Api";
@@ -230,6 +235,8 @@ const PoseAnalysis = ({ initialExercise }) => {
   const [cameraActive, setCameraActive] = useState(false);
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const analysisRunningRef = useRef(false);
+  const [biomechanicalRisk, setBiomechanicalRisk] = useState(null);
+  const lastRiskSpokenRef = useRef(0);
 
   useEffect(() => {
     analysisRunningRef.current = analysisRunning;
@@ -324,6 +331,14 @@ const PoseAnalysis = ({ initialExercise }) => {
 
   const lastSpokenRef = useRef({ text: "", time: 0 });
   const globalSpeechCooldownRef = useRef(0);
+  const lastAutopilotSpokenRef = useRef(0);
+
+  // Advanced Biomechanical & Vision Telemetry States
+  const [breathTelemetry, setBreathTelemetry] = useState(null);
+  const [jointTorque, setJointTorque] = useState(null);
+  const [cameraAutopilot, setCameraAutopilot] = useState(null);
+  const [muscleActivation, setMuscleActivation] = useState(null);
+  const [anatomicalProfile, setAnatomicalProfile] = useState(null);
 
   // Body calibration state
   const [isCalibrating, setIsCalibrating] = useState(false);
@@ -920,9 +935,12 @@ const PoseAnalysis = ({ initialExercise }) => {
             image: imageData,
           });
 
-          const { annotated_image, complete, progress, body_map } = res.data;
+          const { annotated_image, complete, is_complete, progress, body_map, anatomical_profile: profile } = res.data;
           if (annotated_image) {
             setAnnotatedFrame(annotated_image);
+          }
+          if (profile) {
+            setAnatomicalProfile(profile);
           }
 
           elapsedFrames++;
@@ -932,18 +950,22 @@ const PoseAnalysis = ({ initialExercise }) => {
           );
           setCalibrationProgress(calcProgress);
 
-          if (complete || elapsedFrames >= maxFrames) {
+          if (complete || is_complete || elapsedFrames >= maxFrames) {
             clearInterval(calibIntervalRef.current);
             calibIntervalRef.current = null;
             setIsCalibrating(false);
             setLoading(false);
+
+            if (profile) {
+              setAnatomicalProfile(profile);
+            }
 
             if (body_map) {
               setBodyMap({ ...body_map, isCalibrated: true });
               const successCue =
                 body_map.mode === "adaptive"
                   ? "अडैप्टिव मोड में कैलिब्रेशन पूरा हुआ। वर्कआउट शुरू कर सकते हैं।"
-                  : "बॉडी कैलिब्रेशन पूरा हुआ। आपका बॉडी मैप तैयार है।";
+                  : "बॉडी कैलिब्रेशन व शारीरिक अनुपात मैपिंग पूरा हुआ।";
               setInstruction(successCue);
               setInstructionType("success");
             }
@@ -1004,10 +1026,58 @@ const PoseAnalysis = ({ initialExercise }) => {
         signal: controller.signal,
       });
 
-      const { annotated_image, metrics, expression, ai_live_summary } =
-        response.data;
+      const {
+        annotated_image,
+        metrics,
+        expression,
+        ai_live_summary,
+        biomechanical_risk,
+        breath_telemetry,
+        joint_torque,
+        camera_autopilot,
+        muscle_activation,
+        anatomical_profile: serverAnatomicalProfile,
+      } = response.data;
 
       setAnnotatedFrame(annotated_image);
+
+      if (breath_telemetry || metrics?.breath_telemetry) {
+        setBreathTelemetry(breath_telemetry || metrics.breath_telemetry);
+      }
+      if (joint_torque || metrics?.joint_torque) {
+        setJointTorque(joint_torque || metrics.joint_torque);
+      }
+      if (camera_autopilot || metrics?.camera_autopilot) {
+        const autoData = camera_autopilot || metrics.camera_autopilot;
+        setCameraAutopilot(autoData);
+        if (!autoData.is_optimal && analysisRunningRef.current) {
+          const now = Date.now();
+          if (now - lastAutopilotSpokenRef.current > 12000) {
+            lastAutopilotSpokenRef.current = now;
+            speakFeedback(autoData.prompt_hi || autoData.prompt_en, false);
+          }
+        }
+      }
+      if (muscle_activation || metrics?.muscle_activation) {
+        setMuscleActivation(muscle_activation || metrics.muscle_activation);
+      }
+      if (serverAnatomicalProfile) {
+        setAnatomicalProfile(serverAnatomicalProfile);
+      }
+
+      const riskData =
+        biomechanical_risk || metrics?.biomechanical_risk || null;
+      if (riskData) {
+        setBiomechanicalRisk(riskData);
+        if (riskData.is_critical && analysisRunningRef.current) {
+          const now = Date.now();
+          if (now - lastRiskSpokenRef.current > 8000) {
+            lastRiskSpokenRef.current = now;
+            const riskCue = `सावधान: ${riskData.immediate_action || "फॉर्म सुधारें"}`;
+            speakFeedback(riskCue, true);
+          }
+        }
+      }
 
       if (selectedExercise === "reaction") {
         if (expression) {
@@ -1112,6 +1182,8 @@ const PoseAnalysis = ({ initialExercise }) => {
 
       analysisRunningRef.current = true;
       setAnalysisRunning(true);
+      setBiomechanicalRisk(null);
+      lastRiskSpokenRef.current = 0;
       setSessionResult(null); // Clear previous pop-up
       const startCue = `${currentExercise.name} शुरू हो रहा है। ${currentExercise.steps?.[0] || "मूवमेंट शुरू करें।"}`;
       setInstruction(startCue);
@@ -1141,6 +1213,7 @@ const PoseAnalysis = ({ initialExercise }) => {
     // Immediately stop voice assistant as soon as stop button is clicked
     analysisRunningRef.current = false;
     setAnalysisRunning(false);
+    setBiomechanicalRisk(null);
     setIsSpeakingVoice(false);
     setIsSpeakingReport(false);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -1562,12 +1635,110 @@ const PoseAnalysis = ({ initialExercise }) => {
                     <span>{currentExercise.name}</span>
                   </div>
 
+                  {/* Joint Safety Meter */}
+                  {analysisRunning && biomechanicalRisk && (
+                    <div
+                      className={`hidden sm:flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black backdrop-blur-md shadow-xs border ${
+                        biomechanicalRisk.risk_level === "HIGH"
+                          ? "bg-rose-950/80 border-rose-500/80 text-rose-300 animate-pulse"
+                          : biomechanicalRisk.risk_level === "MODERATE"
+                          ? "bg-amber-950/80 border-amber-500/80 text-amber-300"
+                          : "bg-emerald-950/80 border-emerald-500/80 text-emerald-300"
+                      }`}
+                    >
+                      <ShieldAlert
+                        size={13}
+                        className={
+                          biomechanicalRisk.risk_level === "HIGH"
+                            ? "text-rose-400"
+                            : biomechanicalRisk.risk_level === "MODERATE"
+                            ? "text-amber-400"
+                            : "text-emerald-400"
+                        }
+                      />
+                      <span>जॉइंट सेफ्टी: {biomechanicalRisk.safety_score}%</span>
+                    </div>
+                  )}
+
                   {isCalibrating && (
                     <div className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-500/25 px-3 py-1.5 text-xs font-bold text-amber-200 backdrop-blur-md animate-pulse">
                       <RefreshCw size={13} className="animate-spin" />
                       <span>कैलिब्रेटिंग ({calibrationProgress}%)</span>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Real-time Biomechanical Risk Warning Alert Banner */}
+              {analysisRunning && biomechanicalRisk && biomechanicalRisk.is_warning_active && (
+                <div className="absolute top-16 left-3 right-3 sm:left-6 sm:right-6 z-20 mx-auto max-w-xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none">
+                  <div
+                    className={`flex items-start gap-3 rounded-2xl p-3 sm:p-3.5 border shadow-2xl backdrop-blur-md pointer-events-auto ${
+                      biomechanicalRisk.is_critical
+                        ? "border-rose-500/90 bg-rose-950/95 text-white ring-2 ring-rose-500/60 animate-pulse"
+                        : "border-amber-500/90 bg-amber-950/95 text-amber-100 ring-1 ring-amber-400/40"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-inner ${
+                        biomechanicalRisk.is_critical
+                          ? "bg-rose-600 text-white shadow-rose-600/50"
+                          : "bg-amber-500 text-slate-950"
+                      }`}
+                    >
+                      <AlertOctagon size={22} className={biomechanicalRisk.is_critical ? "animate-bounce" : ""} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-rose-300">
+                            🚨 बायोमैकेनिकल रिस्क चेतावनी (Biomechanical Risk Warning)
+                          </span>
+                          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9px] font-black uppercase">
+                            {biomechanicalRisk.risk_level} RISK
+                          </span>
+                        </div>
+                        <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-mono font-black text-white">
+                          सेफ्टी स्कोर: {biomechanicalRisk.safety_score}%
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs sm:text-sm font-black text-white leading-snug">
+                        {biomechanicalRisk.primary_warning_hi}
+                      </p>
+                      {biomechanicalRisk.immediate_action && (
+                        <div className="mt-1.5 flex items-center gap-2 text-[11px] font-bold text-amber-200 flex-wrap">
+                          <span>⚡ तुरंत सुधारें:</span>
+                          <span className="bg-amber-400/20 px-2 py-0.5 rounded-lg border border-amber-400/30 text-amber-100 font-extrabold">
+                            {biomechanicalRisk.immediate_action}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Smart Camera Autopilot Repositioning Prompt */}
+              {analysisRunning && cameraAutopilot && !cameraAutopilot.is_optimal && (
+                <div className="absolute top-20 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 z-20 mx-auto max-w-md animate-in fade-in slide-in-from-top-2 duration-300 pointer-events-none">
+                  <div className="flex items-center gap-2.5 rounded-2xl border border-sky-400/80 bg-slate-950/92 p-2.5 sm:px-4 sm:py-2.5 shadow-2xl backdrop-blur-md text-white ring-1 ring-sky-400/40 pointer-events-auto">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-500/30 border border-sky-400/50 text-sky-300 animate-pulse">
+                      <Compass size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1 text-[9px] font-black uppercase tracking-wider text-sky-300">
+                        <span>📐 स्मार्ट कैमरा ऑटोपायलट (Camera Autopilot)</span>
+                        {cameraAutopilot.yaw_degrees !== undefined && (
+                          <span className="font-mono text-slate-300">
+                            एंगल: {Math.round(cameraAutopilot.yaw_degrees)}°
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-black text-white leading-tight mt-0.5">
+                        {cameraAutopilot.prompt_hi || cameraAutopilot.prompt_en}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1620,21 +1791,80 @@ const PoseAnalysis = ({ initialExercise }) => {
                 </div>
               )}
 
-              {/* Minimal HUD: Bottom-Left Stage Status */}
+              {/* Minimal HUD: Bottom-Left Stage Status & Joint Torque */}
               {cameraActive && (
-                <div className="absolute bottom-4 left-4 z-10 flex items-center gap-2 rounded-xl border border-white/20 bg-black/60 px-3 py-1.5 backdrop-blur-md">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      bodyStatus.includes("Active") || bodyStatus.includes("सक्रिय")
-                        ? "bg-emerald-400 animate-pulse"
-                        : "bg-cyan-400"
+                <div className="absolute bottom-4 left-4 z-10 flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-xl border border-white/20 bg-black/60 px-3 py-1.5 backdrop-blur-md">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        bodyStatus.includes("Active") || bodyStatus.includes("सक्रिय")
+                          ? "bg-emerald-400 animate-pulse"
+                          : "bg-cyan-400"
+                      }`}
+                    />
+                    <span className="text-xs font-bold text-white uppercase tracking-wider text-[10px]">
+                      {selectedExercise === "reaction"
+                        ? expressionData.dominant_emotion || "Analyzing Face"
+                        : bodyStatus}
+                    </span>
+                  </div>
+
+                  {/* Real-time Joint Torque & Shear Stress Meter */}
+                  {analysisRunning && jointTorque && (
+                    <div className="hidden sm:flex items-center gap-2 rounded-xl border border-white/20 bg-black/65 px-3 py-1.5 backdrop-blur-md text-white shadow-xs">
+                      <Zap size={13} className={jointTorque.is_overloaded ? "text-rose-400 animate-bounce" : "text-cyan-400"} />
+                      <div className="text-[10px] font-bold flex items-center gap-2">
+                        <span className="text-slate-300">L5-S1: <span className="text-cyan-300 font-mono font-black">{jointTorque.l5_s1_torque_nm || 0} N·m</span></span>
+                        <span className="text-slate-500">•</span>
+                        <span className="text-slate-300">Knee: <span className="text-amber-300 font-mono font-black">{jointTorque.knee_torque_nm || 0} N·m</span></span>
+                        {jointTorque.is_overloaded && (
+                          <span className="rounded bg-rose-600 px-1.5 py-0.2 text-[8px] font-black text-white uppercase animate-pulse">
+                            ओवरलोड
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Vision-Based Breath Waveform & Pranayama Sync HUD */}
+              {cameraActive && analysisRunning && breathTelemetry && (
+                <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2 rounded-2xl border border-white/20 bg-black/75 px-3 py-1.5 backdrop-blur-md shadow-md text-white">
+                  <div
+                    className={`flex h-7 w-7 items-center justify-center rounded-xl text-xs font-black shadow-inner ${
+                      breathTelemetry.breath_phase === "INHALE"
+                        ? "bg-cyan-500 text-white animate-pulse"
+                        : breathTelemetry.breath_phase === "EXHALE"
+                        ? "bg-amber-500 text-slate-950"
+                        : "bg-emerald-500 text-white"
                     }`}
-                  />
-                  <span className="text-xs font-bold text-white uppercase tracking-wider text-[10px]">
-                    {selectedExercise === "reaction"
-                      ? expressionData.dominant_emotion || "Analyzing Face"
-                      : bodyStatus}
-                  </span>
+                  >
+                    <Wind size={15} />
+                  </div>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5 leading-none">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-cyan-300">
+                        श्वास ({breathTelemetry.breath_phase || "INHALE"})
+                      </span>
+                      <span className="rounded-full bg-cyan-500/25 px-1.5 py-0.2 text-[9px] font-mono font-bold text-cyan-200">
+                        {breathTelemetry.respiration_bpm || 14} BPM
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="h-1.5 w-16 rounded-full bg-white/20 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            breathTelemetry.breath_phase === "INHALE" ? "bg-cyan-400" : "bg-amber-400"
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(15, breathTelemetry.chest_expansion_pct || 50))}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] font-bold text-slate-300">
+                        तालमेल: <span className="text-emerald-400 font-mono font-black">{breathTelemetry.pranayama_sync_score || 85}%</span>
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1782,6 +2012,7 @@ const PoseAnalysis = ({ initialExercise }) => {
                         <Pose3DBotViewer
                           exercise="suryanamaskar"
                           suryaStep={suryaStepNum}
+                          muscleActivation={muscleActivation}
                           className="h-full"
                         />
                       ) : (
@@ -1833,15 +2064,53 @@ const PoseAnalysis = ({ initialExercise }) => {
                       ) : (
                         <Pose3DBotViewer
                           exercise="desk"
+                          muscleActivation={muscleActivation}
                           className="h-full"
                         />
                       )}
                     </div>
                   ) : (
-                    <Pose3DBotViewer
-                      exercise={selectedExercise}
-                      className="h-full"
-                    />
+                    <div className="flex flex-col h-full gap-2">
+                      <Pose3DBotViewer
+                        exercise={selectedExercise}
+                        muscleActivation={muscleActivation}
+                        className="h-full min-h-[300px]"
+                      />
+                      {/* Real-time Muscle Group Recruitment Visualizer */}
+                      {muscleActivation?.muscle_activations && (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xs space-y-1.5">
+                          <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                            <span className="flex items-center gap-1 text-cyan-800">
+                              <Zap size={12} className="text-cyan-600" />
+                              मसल एक्टिवेशन (Muscle Recruitment)
+                            </span>
+                            <span className="font-mono text-emerald-700 font-bold">
+                              पीक: {muscleActivation.peak_activation_pct ?? 85}%
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                            {Object.entries(muscleActivation.muscle_activations)
+                              .slice(0, 4)
+                              .map(([mName, val]) => (
+                                <div key={mName} className="flex flex-col gap-0.5 bg-slate-50 rounded-lg p-1 border border-slate-100">
+                                  <div className="flex items-center justify-between text-[9px] font-bold text-slate-600 capitalize">
+                                    <span className="truncate">{mName.replace("_", " ")}</span>
+                                    <span className="font-mono text-slate-900 font-black">{val}%</span>
+                                  </div>
+                                  <div className="h-1 rounded-full bg-slate-200 overflow-hidden">
+                                    <div
+                                      className={`h-full transition-all duration-300 ${
+                                        val >= 80 ? "bg-emerald-500" : val >= 50 ? "bg-cyan-500" : "bg-slate-400"
+                                      }`}
+                                      style={{ width: `${val}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </React.Suspense>
               </div>
@@ -2412,6 +2681,272 @@ const PoseAnalysis = ({ initialExercise }) => {
                     {isSpeakingReport ? "ऑडियो रोकें" : "पूरी रिपोर्ट सुनें"}
                   </button>
                 </div>
+
+                {/* 🛡️ बायोमैकेनिकल रिस्क असेसमेंट व जॉइंट सेफ्टी (Biomechanical Risk & Joint Safety Protocol) */}
+                {(() => {
+                  const riskReport =
+                    sessionResult.biomechanical_risk ||
+                    sessionResult.ai_report?.biomechanical_risk_assessment;
+                  if (!riskReport) return null;
+
+                  const isHigh =
+                    riskReport.overall_status === "high" ||
+                    (riskReport.safety_index !== undefined && riskReport.safety_index < 60);
+                  const isModerate =
+                    riskReport.overall_status === "moderate" ||
+                    (riskReport.safety_index !== undefined &&
+                      riskReport.safety_index >= 60 &&
+                      riskReport.safety_index < 80);
+
+                  return (
+                    <div
+                      className={`rounded-2xl border p-4 sm:p-5 shadow-xs transition ${
+                        isHigh
+                          ? "border-rose-300 bg-gradient-to-br from-rose-50/90 via-red-50/40 to-white ring-1 ring-rose-200"
+                          : isModerate
+                          ? "border-amber-300 bg-gradient-to-br from-amber-50/90 via-orange-50/30 to-white ring-1 ring-amber-200"
+                          : "border-emerald-300 bg-gradient-to-br from-emerald-50/90 via-teal-50/30 to-white"
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider text-slate-900">
+                          <ShieldAlert
+                            size={18}
+                            className={
+                              isHigh
+                                ? "text-rose-600 animate-pulse"
+                                : isModerate
+                                ? "text-amber-600"
+                                : "text-emerald-600"
+                            }
+                          />
+                          <span>बायोमैकेनिकल रिस्क असेसमेंट व जॉइंट सेफ्टी (Biomechanical Risk & Joint Safety)</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`rounded-full px-3 py-0.5 text-xs font-black border ${
+                              isHigh
+                                ? "bg-rose-100 border-rose-300 text-rose-800"
+                                : isModerate
+                                ? "bg-amber-100 border-amber-300 text-amber-800"
+                                : "bg-emerald-100 border-emerald-300 text-emerald-800"
+                            }`}
+                          >
+                            {riskReport.overall_rating || "सुरक्षित (Low Risk)"}
+                          </span>
+                          <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-xs font-mono font-black text-white">
+                            सेफ्टी इंडेक्स: {riskReport.safety_index ?? 90}%
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-xs sm:text-sm text-slate-700 font-medium leading-relaxed mb-3">
+                        {riskReport.summary_msg}
+                      </p>
+
+                      {/* Vulnerable Joint Anatomy Cards */}
+                      {riskReport.joint_cards && riskReport.joint_cards.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                          {riskReport.joint_cards.map((joint, jIdx) => (
+                            <div
+                              key={jIdx}
+                              className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
+                                    {jIdx + 1}
+                                  </span>
+                                  {joint.joint_name}
+                                </h4>
+                                <span
+                                  className={`rounded-md px-2 py-0.5 text-[9px] font-black uppercase ${
+                                    joint.risk_tier === "HIGH"
+                                      ? "bg-rose-100 text-rose-800"
+                                      : joint.risk_tier === "MODERATE"
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-emerald-100 text-emerald-800"
+                                  }`}
+                                >
+                                  {joint.risk_tier} RISK
+                                </span>
+                              </div>
+
+                              <div className="text-xs text-slate-600">
+                                <strong className="font-bold text-slate-800">पहचानी गई समस्या: </strong>
+                                {joint.concern}
+                              </div>
+
+                              <div className="text-xs text-slate-600 leading-snug">
+                                <strong className="font-bold text-amber-900">चोट का जोखिम (Impact): </strong>
+                                {joint.impact}
+                              </div>
+
+                              <div className="rounded-lg bg-emerald-50/80 p-2 text-xs text-emerald-900 border border-emerald-100 font-medium">
+                                <strong className="font-bold text-emerald-950">फिजियोथेरेपी व बचाव: </strong>
+                                {joint.remedy}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* 🫁 विजन-आधारित श्वसन व प्राणायाम तालमेल (Vision-Based Breath Detection & Pranayama Sync) */}
+                {(() => {
+                  const bSummary =
+                    sessionResult.breath_summary ||
+                    sessionResult.ai_report?.breath_summary;
+                  if (!bSummary) return null;
+
+                  return (
+                    <div className="rounded-2xl border border-cyan-200/90 bg-gradient-to-br from-cyan-50/90 via-sky-50/40 to-white p-4 sm:p-5 shadow-2xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2 text-cyan-950 font-black text-xs uppercase tracking-wider">
+                          <Wind size={18} className="text-cyan-600" />
+                          <span>विजन-आधारित श्वसन व प्राणायाम तालमेल (Pranayama-Kinematics Sync)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-cyan-100 border border-cyan-300 px-3 py-0.5 text-xs font-black text-cyan-900">
+                            {bSummary.sync_rating || "उत्तम (Good)"}
+                          </span>
+                          <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-xs font-mono font-black text-white">
+                            तालमेल: {bSummary.avg_pranayama_sync ?? 85}%
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                        <div className="rounded-xl border border-cyan-100 bg-white/90 p-3 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">औसत श्वसन दर (Respiration Rate)</span>
+                          <div className="text-sm font-black text-slate-900 mt-0.5">
+                            {bSummary.avg_respiration_bpm || 14} <span className="text-xs font-normal text-slate-500">सांसें प्रति मिनट (BPM)</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-1">
+                            छाती और कॉलरबोन (Sternum) के माइक्रो-विस्थापन के आधार पर मापा गया।
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-cyan-100 bg-white/90 p-3 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">काइनेटिक श्वास तालमेल (Sync Score)</span>
+                          <div className="text-sm font-black text-cyan-800 mt-0.5">
+                            {bSummary.avg_pranayama_sync ?? 85}% सटीकता
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-1">
+                            छाती विस्तार पर श्वास (Inhale) और झुकते समय प्रश्वास (Exhale) का सही समन्वय।
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ⚡ बायोमैकेनिकल जॉइंट टॉर्क व लोड मॉडलिंग (Biomechanical Joint-Load & Torque Modeling) */}
+                {(() => {
+                  const tSummary =
+                    sessionResult.joint_load_summary ||
+                    sessionResult.ai_report?.joint_load_summary;
+                  if (!tSummary) return null;
+
+                  const isOverloaded = tSummary.overload_detected;
+
+                  return (
+                    <div className={`rounded-2xl border p-4 sm:p-5 shadow-2xs transition ${
+                      isOverloaded
+                        ? "border-rose-300 bg-gradient-to-br from-rose-50/90 via-red-50/40 to-white"
+                        : "border-indigo-200/90 bg-gradient-to-br from-indigo-50/90 via-blue-50/40 to-white"
+                    }`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2 text-slate-900 font-black text-xs uppercase tracking-wider">
+                          <Zap size={18} className={isOverloaded ? "text-rose-600 animate-pulse" : "text-indigo-600"} />
+                          <span>बायोमैकेनिकल जॉइंट टॉर्क व शियर स्ट्रेस (Inverse Dynamics Torque)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`rounded-full px-3 py-0.5 text-xs font-black border ${
+                            isOverloaded
+                              ? "bg-rose-100 border-rose-300 text-rose-800"
+                              : "bg-emerald-100 border-emerald-300 text-emerald-800"
+                          }`}>
+                            {tSummary.status || (isOverloaded ? "शियर स्ट्रेस चेतावनी" : "सुरक्षित लोड (Safe)")}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                        <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">L5-S1 लम्बर टॉर्क (Lumbar)</span>
+                          <div className="text-base font-black text-slate-900 mt-0.5">
+                            {tSummary.peak_l5_s1_torque_nm ?? 0} <span className="text-xs font-normal text-slate-500">N·m</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500">कमर के निचले हिस्से पर फ्लेक्सियन मोमेंट</span>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">घुटने का टॉर्क (Patellofemoral)</span>
+                          <div className="text-base font-black text-slate-900 mt-0.5">
+                            {tSummary.peak_knee_torque_nm ?? 0} <span className="text-xs font-normal text-slate-500">N·m</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500">क्वाड्रिसेप्स टेंडन व पटेला लोड</span>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">शियर फोर्स (Shear Stress)</span>
+                          <div className={`text-base font-black mt-0.5 ${isOverloaded ? "text-rose-600" : "text-emerald-700"}`}>
+                            {tSummary.peak_shear_n ?? 0} <span className="text-xs font-normal text-slate-500">N</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500">सुरक्षित सीमा: &lt;450 N</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 🧬 व्यक्तिगत शारीरिक अनुपात व कंकाल कैलिब्रेशन (Anatomical Proportion Calibration) */}
+                {(() => {
+                  const profile =
+                    sessionResult.anatomical_profile ||
+                    anatomicalProfile;
+                  if (!profile) return null;
+
+                  return (
+                    <div className="rounded-2xl border border-purple-200/90 bg-gradient-to-br from-purple-50/90 via-fuchsia-50/30 to-white p-4 sm:p-5 shadow-2xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2 text-purple-950 font-black text-xs uppercase tracking-wider">
+                          <Target size={18} className="text-purple-600" />
+                          <span>व्यक्तिगत कंकाल अनुपात कैलिब्रेशन (Personalized Morphology)</span>
+                        </div>
+                        <span className="rounded-full bg-purple-100 border border-purple-300 px-3 py-0.5 text-xs font-black text-purple-900">
+                          {profile.morphology_type || "संतुलित संरचना (Balanced)"}
+                        </span>
+                      </div>
+
+                      <p className="text-xs sm:text-sm text-slate-700 font-medium leading-relaxed mb-3">
+                        {profile.description || "आपकी हड्डियों के अनुपात के अनुसार कोणों को स्केल किया गया है, ताकि संरचनात्मक बोन-स्टॉप और लचीलेपन में अंतर स्पष्ट हो सके।"}
+                      </p>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        <div className="rounded-xl border border-purple-100 bg-white/90 p-2.5 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">फीमर/धड़ अनुपात</span>
+                          <div className="text-sm font-black text-purple-900 font-mono mt-0.5">
+                            {profile.femur_to_torso_ratio ?? 0.78}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-purple-100 bg-white/90 p-2.5 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">अनुकूलित लीन टॉलरेंस</span>
+                          <div className="text-sm font-black text-purple-900 font-mono mt-0.5">
+                            {profile.squat_lean_tolerance_deg ?? 35}°
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-purple-100 bg-white/90 p-2.5 shadow-2xs col-span-2 sm:col-span-1">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">बोन-स्टॉप फ्लेक्सिबिलिटी</span>
+                          <div className="text-sm font-black text-emerald-700 font-mono mt-0.5">
+                            {profile.bone_stop_flexibility_index ?? 85}/100
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 1. आपकी ताकत और मजबूत पक्ष (Key Strengths & Highlights) */}
                 <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white p-4 sm:p-5 shadow-2xs">

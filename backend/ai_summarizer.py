@@ -401,6 +401,27 @@ class AISummarizer:
             if not focus_areas:
                 focus_areas.append("आपका फॉर्म अत्यधिक संतुलित है! अगले वर्कआउट में रेप्स की संख्या या होल्ड ड्यूरेशन 15% बढ़ाने पर ध्यान दें।")
 
+        # Biomechanical Risk Assessment & Joint Safety Compilation
+        risk_assessment = summary_data.get("biomechanical_risk_assessment")
+        if not risk_assessment:
+            try:
+                from analyzers.biomechanical_risk import BiomechanicalRiskEvaluator
+                risk_assessment = BiomechanicalRiskEvaluator.compile_session_risk_report(
+                    exercise_type=exercise_type,
+                    cumulative_telemetry={},
+                    unique_errors=unique_errors
+                )
+            except Exception:
+                risk_assessment = {
+                    "overall_rating": "सुरक्षित (Low Risk)",
+                    "safety_index": 92,
+                    "summary_msg": "जोड़ों का अलाइनमेंट सुरक्षित सीमा में रहा।",
+                    "joint_cards": []
+                }
+
+        risk_rating = risk_assessment.get("overall_rating", "सुरक्षित (Low Risk)")
+        risk_safety_idx = risk_assessment.get("safety_index", 90)
+
         # Formatted Markdown in Hindi
         mistakes_markdown = "\n".join(
             f"• **{m['name']}**: {m['reason']}" for m in mistakes_list
@@ -415,9 +436,27 @@ class AISummarizer:
             f"• {f}" for f in focus_areas
         )
 
+        breath_summary = summary_data.get("breath_summary")
+        joint_load_summary = summary_data.get("joint_load_summary")
+        
+        telemetry_bullets = []
+        if breath_summary:
+            sync_val = breath_summary.get("avg_pranayama_sync", 85)
+            bpm_val = breath_summary.get("avg_respiration_bpm", 14)
+            rating = breath_summary.get("sync_rating", "Good")
+            telemetry_bullets.append(f"🫁 **प्राणायाम व श्वास तालमेल (Pranayama Sync)**: {sync_val}% ({rating}) · औसत श्वसन दर: {bpm_val} BPM")
+        if joint_load_summary:
+            l5_val = joint_load_summary.get("peak_l5_s1_torque_nm", 0)
+            knee_val = joint_load_summary.get("peak_knee_torque_nm", 0)
+            status_text = joint_load_summary.get("status", "सुरक्षित")
+            telemetry_bullets.append(f"⚡ **जॉइंट टॉर्क व शियर स्ट्रेस (Inverse Dynamics)**: L5-S1 लम्बर: {l5_val} N·m | नी लोड: {knee_val} N·m ({status_text})")
+        
+        telemetry_section = ("\n\n" + "\n".join(telemetry_bullets)) if telemetry_bullets else ""
+
         formatted_text = (
             f"🎯 **{headline}**\n\n"
             f"📊 **स्कोर व सटीकता**: {score_text}\n\n"
+            f"🛡️ **बायोमैकेनिकल रिस्क रेटिंग**: {risk_rating} (सेफ्टी इंडेक्स: {risk_safety_idx}%){telemetry_section}\n\n"
             f"📋 **1. आपने क्या-क्या किया (What You Did)**:\n"
             f"{what_you_did_text}\n"
             f"• **लक्षित मांसपेशियां**: {target_muscles}\n\n"
@@ -451,6 +490,9 @@ class AISummarizer:
                 "has_mistakes": bool(unique_errors),
                 "mistakes_list": mistakes_list,
             },
+            "biomechanical_risk_assessment": risk_assessment,
+            "breath_summary": breath_summary,
+            "joint_load_summary": joint_load_summary,
             "corrective_exercises": {
                 "drills": corrective_drills,
             },

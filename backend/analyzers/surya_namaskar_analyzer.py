@@ -908,6 +908,7 @@ class SuryaAnalyzer:
         keypoint_data = results[0].keypoints.data if (results[0].keypoints is not None) else []
         if len(keypoint_data) > 0:
             kpts = keypoint_data[0].cpu().numpy()
+            self.last_keypoints = kpts
             metrics = self.engine.analyze(kpts)
         else:
             metrics = self.engine.analyze([])

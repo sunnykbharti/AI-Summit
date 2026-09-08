@@ -63,6 +63,7 @@ class PlankAnalyzer:
         keypoint_data = results[0].keypoints.data
         if len(keypoint_data) > 0:
             person = keypoint_data[0].cpu().numpy()
+            self.last_keypoints = person
 
             l_sh, r_sh = person[LEFT_SHOULDER], person[RIGHT_SHOULDER]
             l_hip, r_hip = person[LEFT_HIP], person[RIGHT_HIP]

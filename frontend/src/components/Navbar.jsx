@@ -14,6 +14,7 @@ import {
   Smile,
   Menu,
   X,
+  Bot,
 } from "lucide-react";
 import { prefetch } from "../api/Api.jsx";
 
@@ -22,6 +23,7 @@ const PREFETCH_MAP = {
   "/sessions": ["/sessions"],
   "/leaderboard": ["/pose/leaderboard?period=all_time"],
   "/profile": ["/profile"],
+  "/ask-me": ["/ask_ai/quick_prompts"],
 };
 
 const Navbar = () => {
@@ -62,6 +64,7 @@ const Navbar = () => {
 
   const navItems = [
     { to: "/dashboard", icon: <Home size={17} />, text: "Dashboard" },
+    { to: "/ask-me", icon: <Bot size={17} />, text: "Ask AI", badge: "AI" },
     { to: "/pose-analysis", icon: <Video size={17} />, text: "Pose Analysis" },
     { to: "/reaction-analysis", icon: <Smile size={17} />, text: "Reaction AI" },
     { to: "/sessions", icon: <History size={17} />, text: "Sessions" },
@@ -120,6 +123,11 @@ const Navbar = () => {
                     {item.icon}
                   </span>
                   <span>{item.text}</span>
+                  {item.badge && (
+                    <span className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-1.5 py-0.5 text-[9px] font-black uppercase text-white shadow-xs">
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -174,7 +182,12 @@ const Navbar = () => {
                   }`}
                 >
                   <span className={active ? "text-cyan-600" : ""}>{item.icon}</span>
-                  <span>{item.text}</span>
+                  <span className="flex-1">{item.text}</span>
+                  {item.badge && (
+                    <span className="rounded-full bg-cyan-600 px-1.5 py-0.5 text-[9px] font-black uppercase text-white">
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}

@@ -88,6 +88,7 @@ const Pose3DBotViewer = ({
   suryaStep = 1,
   className = "",
   onClose = null,
+  muscleActivation = null,
 }) => {
   const mountRef = useRef(null);
   const controlsRef = useRef(null);
@@ -821,6 +822,26 @@ const Pose3DBotViewer = ({
     <div
       className={`relative w-full h-full flex flex-col rounded-3xl border border-slate-200 bg-[#f8fafc] shadow-lg overflow-hidden ${className}`}
     >
+      {/* Dynamic Mind-Muscle Activation HUD */}
+      {muscleActivation && muscleActivation.primary_muscle && (
+        <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 rounded-xl bg-slate-950/85 border border-cyan-500/40 px-2.5 py-1 backdrop-blur-md shadow-md text-white">
+            <Zap size={13} className="text-cyan-400 animate-pulse" />
+            <div className="text-[11px] font-bold flex items-center gap-1">
+              <span className="text-cyan-300">{muscleActivation.primary_muscle}:</span>
+              <span className="text-emerald-400 font-mono font-black">
+                {muscleActivation.peak_activation_pct ?? 85}%
+              </span>
+            </div>
+          </div>
+          {muscleActivation.mind_muscle_cue && (
+            <div className="hidden sm:block rounded-xl bg-slate-900/85 border border-slate-700/60 px-2.5 py-1 text-[10px] text-slate-300 font-medium backdrop-blur-md truncate max-w-[210px]">
+              {muscleActivation.mind_muscle_cue}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Pure 3D Canvas Viewport - Only Bot */}
       <div
         ref={mountRef}

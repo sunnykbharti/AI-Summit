@@ -70,6 +70,7 @@ class SquatAnalyzer:
 
         if len(keypoint_data) > 0:
             person = keypoint_data[0].cpu().numpy()
+            self.last_keypoints = person
 
             l_hip, r_hip = person[LEFT_HIP], person[RIGHT_HIP]
             l_knee, r_knee = person[LEFT_KNEE], person[RIGHT_KNEE]

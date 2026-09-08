@@ -18,6 +18,12 @@ from analyzers.desk_posture_analyzer import DeskPostureAnalyzer
 from reaction.expression_analyzer import FacialExpressionAnalyzer
 from reaction.reaction_analyzer import ReactionAnalyzer
 from ai_summarizer import ai_summarizer
+from analyzers.biomechanical_risk import BiomechanicalRiskEvaluator
+from analyzers.breath_detector import VisionBreathDetector
+from analyzers.joint_torque_model import JointTorqueModel
+from analyzers.anatomical_calibration import AnatomicalCalibrator
+from analyzers.camera_autopilot import CameraAutopilot
+from analyzers.muscle_activation import MuscleActivationEstimator
 
 from analyzers.bodymap import BodyMapCalibrator, draw_calibration_hud, BodyMode, BodyMap
 from ultralytics import YOLO
@@ -53,13 +59,29 @@ _active = {
     "frame_count": 0,
     "last_ai_insight": None,
     "body_map": None,
+    "anatomical_profile": None,
     "expression_history": [],
+    "breath_history": [],
+    "torque_history": [],
+    "risk_tracker": {
+        "peak_risk_score": 0,
+        "high_risk_frames": 0,
+        "moderate_risk_frames": 0,
+        "total_frames": 0,
+        "vulnerable_joints": set(),
+    },
 }
 
 _calibrator = BodyMapCalibrator(duration=3.0)
 _calib_model = None
 _calib_device = None
 _expression_analyzer = FacialExpressionAnalyzer()
+
+_breath_detector = VisionBreathDetector()
+_joint_torque_model = JointTorqueModel()
+_anatomical_calibrator = AnatomicalCalibrator(duration_sec=3.0)
+_camera_autopilot = CameraAutopilot()
+_muscle_activation_estimator = MuscleActivationEstimator()
 
 
 def get_calibration_model():
@@ -77,11 +99,13 @@ def calibrate_start():
     except Exception:
         pass
 
-    global _calibrator
+    global _calibrator, _anatomical_calibrator
     data = request.get_json(silent=True) or {}
     duration = float(data.get("duration", 3.0))
     _calibrator = BodyMapCalibrator(duration=duration)
     _calibrator.reset()
+    _anatomical_calibrator = AnatomicalCalibrator(duration_sec=duration)
+    _anatomical_calibrator.reset()
     return jsonify({
         "status": "calibration_started",
         "duration": _calibrator.duration,
@@ -97,7 +121,7 @@ def calibrate_frame():
     except Exception:
         pass
 
-    global _calibrator
+    global _calibrator, _anatomical_calibrator
     data = request.get_json(silent=True) or {}
     image_data_url = data.get("image")
     if not image_data_url:
@@ -125,11 +149,15 @@ def calibrate_frame():
         kps = keypoint_data[0].cpu().numpy()
 
     _calibrator.observe(kps)
+    if kps is not None:
+        _anatomical_calibrator.observe(kps)
+
     progress = _calibrator.progress()
     is_complete = _calibrator.is_complete()
 
     body_map = _calibrator.build()
     detected_groups = [g["name"] for g in body_map.group_status if g["tracked"]]
+    anatomical_profile = None
 
     # Annotate frame with skeleton and frosted-glass HUD (hide labels and confidence)
     annotated_rgb = results[0].plot(labels=False, conf=False)
@@ -142,9 +170,14 @@ def calibrate_frame():
 
     annotated_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode("utf-8")
 
-    # If completed, cache as active body map
+    # If completed, cache as active body map & compute anatomical proportion profile
     if is_complete:
         _active["body_map"] = body_map.to_dict()
+        profile_obj = _anatomical_calibrator.compute_profile()
+        anatomical_profile = profile_obj.to_dict()
+        _active["anatomical_profile"] = anatomical_profile
+    elif _active.get("anatomical_profile"):
+        anatomical_profile = _active.get("anatomical_profile")
 
     return jsonify({
         "progress": round(progress, 3),
@@ -152,6 +185,7 @@ def calibrate_frame():
         "frames_seen": _calibrator.frames,
         "annotated_image": annotated_b64,
         "body_map": body_map.to_dict(),
+        "anatomical_profile": anatomical_profile,
         "detected_groups": detected_groups,
     })
 
@@ -179,6 +213,17 @@ def start_exercise():
     _active["frame_count"] = 0
     _active["last_ai_insight"] = None
     _active["started_at"] = datetime.utcnow()
+    _active["breath_history"] = []
+    _active["torque_history"] = []
+    _breath_detector.reset()
+    _camera_autopilot.reset()
+    _active["risk_tracker"] = {
+        "peak_risk_score": 0,
+        "high_risk_frames": 0,
+        "moderate_risk_frames": 0,
+        "total_frames": 0,
+        "vulnerable_joints": set(),
+    }
     if body_map:
         _active["body_map"] = body_map
 
@@ -186,6 +231,7 @@ def start_exercise():
         "status": "started",
         "exercise": exercise_type,
         "body_map": _active.get("body_map"),
+        "anatomical_profile": _active.get("anatomical_profile"),
     })
 
 
@@ -267,8 +313,70 @@ def analyze_frame():
 
     annotated_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode("utf-8")
 
-    # Generate or update Live AI Feed Insight (throttled every 15 frames or issue change)
+    # Keypoints for advanced biomechanical engines
+    last_kps = getattr(_active["analyzer"], "last_keypoints", None)
+
+    # 1. Vision-Based Breath Detection (Pranayama-Kinematics Sync)
+    breath_data = _breath_detector.process_frame(last_kps, exercise=_active["exercise"], exercise_metrics=metrics)
+    _active["breath_history"].append(breath_data)
+    metrics["breath_telemetry"] = breath_data
+
+    # 2. Biomechanical Joint-Load & Torque Modeling (Inverse Dynamics)
+    torque_data = _joint_torque_model.compute_torques(
+        keypoints=last_kps,
+        exercise_type=_active["exercise"],
+        metrics=metrics
+    )
+    _active["torque_history"].append(torque_data)
+    metrics["joint_torque"] = torque_data
+
+    # 3. Smart Camera Autopilot & Repositioning
+    frame_h, frame_w = frame.shape[:2]
+    autopilot_data = _camera_autopilot.evaluate_frame(
+        keypoints=last_kps,
+        frame_width=frame_w,
+        frame_height=frame_h,
+        exercise_type=_active["exercise"]
+    )
+    metrics["camera_autopilot"] = autopilot_data
+
+    # 4. Muscle Group Activation Estimation
+    muscle_data = _muscle_activation_estimator.estimate_activation(
+        exercise_type=_active["exercise"],
+        metrics=metrics,
+        keypoints=last_kps
+    )
+    metrics["muscle_activation"] = muscle_data
+
+    # Evaluate real-time Biomechanical Risk Warning
     rep_log = list(getattr(_active["analyzer"], "rep_log", []))
+    frame_risk = BiomechanicalRiskEvaluator.evaluate_frame_risk(
+        exercise_type=_active["exercise"],
+        metrics=metrics,
+        rep_log=rep_log
+    )
+    metrics["biomechanical_risk"] = frame_risk
+
+    # Track cumulative session risk telemetry
+    if _active.get("risk_tracker") is None:
+        _active["risk_tracker"] = {
+            "peak_risk_score": 0,
+            "high_risk_frames": 0,
+            "moderate_risk_frames": 0,
+            "total_frames": 0,
+            "vulnerable_joints": set(),
+        }
+    rt = _active["risk_tracker"]
+    rt["total_frames"] += 1
+    if frame_risk["risk_score"] > rt["peak_risk_score"]:
+        rt["peak_risk_score"] = frame_risk["risk_score"]
+    if frame_risk["risk_level"] == "HIGH":
+        rt["high_risk_frames"] += 1
+    elif frame_risk["risk_level"] == "MODERATE":
+        rt["moderate_risk_frames"] += 1
+    for vj in frame_risk.get("vulnerable_joints", []):
+        rt["vulnerable_joints"].add(vj.get("joint"))
+
     has_issues = bool(metrics.get("issues"))
     last_had_issues = _active.get("last_had_issues", False)
     _active["last_had_issues"] = has_issues
@@ -296,8 +404,14 @@ def analyze_frame():
     return jsonify({
         "annotated_image": annotated_b64,
         "metrics": metrics,
+        "biomechanical_risk": frame_risk,
+        "breath_telemetry": breath_data,
+        "joint_torque": torque_data,
+        "camera_autopilot": autopilot_data,
+        "muscle_activation": muscle_data,
         "ai_live_summary": ai_insight,
         "body_map": _active.get("body_map"),
+        "anatomical_profile": _active.get("anatomical_profile"),
         "expression": expression_data,
     })
 
@@ -401,6 +515,49 @@ def stop_exercise():
                 "summary_text": "Good focus & engagement throughout reaction session.",
             }
 
+    # 1. Vision-Based Breath Detection Session Summary
+    b_hist = _active.get("breath_history", [])
+    avg_breath_sync = int(np.mean([b.get("pranayama_sync_score", 80) for b in b_hist])) if b_hist else 85
+    avg_bpm = int(np.mean([b.get("respiration_bpm", 14) for b in b_hist])) if b_hist else 14
+    breath_summary = {
+        "avg_pranayama_sync": avg_breath_sync,
+        "avg_respiration_bpm": avg_bpm,
+        "sync_rating": "Mastered (Guru)" if avg_breath_sync >= 85 else ("Good (Practitioner)" if avg_breath_sync >= 70 else "Needs Alignment"),
+        "summary_text": f"Pranayama-Kinematics Sync: {avg_breath_sync}% · Average Respiration: {avg_bpm} BPM"
+    }
+    summary["breath_summary"] = breath_summary
+
+    # 2. Joint-Load & Torque Modeling Session Summary
+    t_hist = _active.get("torque_history", [])
+    peak_l5_torque = max([t.get("l5_s1_torque_nm", 0.0) for t in t_hist], default=0.0)
+    peak_knee_torque = max([t.get("knee_torque_nm", 0.0) for t in t_hist], default=0.0)
+    peak_shear_n = max([t.get("l5_s1_shear_n", 0.0) for t in t_hist], default=0.0)
+    has_torque_overload = any(t.get("is_overloaded", False) for t in t_hist)
+    joint_load_summary = {
+        "peak_l5_s1_torque_nm": round(peak_l5_torque, 1),
+        "peak_knee_torque_nm": round(peak_knee_torque, 1),
+        "peak_shear_n": round(peak_shear_n, 1),
+        "overload_detected": has_torque_overload,
+        "status": "Warning: Shear Stress Exceeded Safe Threshold" if has_torque_overload else "Optimal Joint Load",
+        "summary_text": f"Peak L5-S1: {round(peak_l5_torque, 1)} N·m | Peak Knee: {round(peak_knee_torque, 1)} N·m"
+    }
+    summary["joint_load_summary"] = joint_load_summary
+
+    # Compile Session Biomechanical Risk Report
+    rep_log = summary.get("rep_log", [])
+    all_errors = []
+    for rep in rep_log:
+        if isinstance(rep, dict) and "errors" in rep:
+            all_errors.extend(rep.get("errors", []))
+    unique_errors = list(set(all_errors))
+
+    risk_report = BiomechanicalRiskEvaluator.compile_session_risk_report(
+        exercise_type=exercise_name,
+        cumulative_telemetry=_active.get("risk_tracker") or {},
+        unique_errors=unique_errors
+    )
+    summary["biomechanical_risk_assessment"] = risk_report
+
     # Generate instant biomechanical AI Session Report (<2ms)
     ai_report = ai_summarizer.generate_session_summary(exercise_name, summary, wait_for_llm=False)
     ai_summary_payload = json.dumps(ai_report, ensure_ascii=False)
@@ -473,6 +630,10 @@ def stop_exercise():
         "accuracy": summary.get("accuracy", 85.0),
         "feedback": ai_summary_text,
         "ai_report": ai_report,
+        "biomechanical_risk": risk_report,
+        "breath_summary": breath_summary,
+        "joint_load_summary": joint_load_summary,
+        "anatomical_profile": _active.get("anatomical_profile"),
         "step_analysis": summary.get("step_analysis", []),
         "session_id": session_id,
         "body_map": _active.get("body_map"),

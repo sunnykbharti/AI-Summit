@@ -67,6 +67,7 @@ class PushupAnalyzer:
 
         if len(keypoint_data) > 0:
             person = keypoint_data[0].cpu().numpy()
+            self.last_keypoints = person
 
             l_sh, r_sh = person[LEFT_SHOULDER], person[RIGHT_SHOULDER]
             l_el, r_el = person[LEFT_ELBOW], person[RIGHT_ELBOW]

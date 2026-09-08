@@ -16,6 +16,7 @@ import Progress      from "./pages/Progress";
 import Profile       from "./pages/Profile";
 import Exercise      from "./pages/Exercises";
 import Leaderboard   from "./pages/Leaderboard";
+import AskMe         from "./pages/AskMe";
 
 const routes = createBrowserRouter([
   /* ====== AUTH ====== */
@@ -33,6 +34,7 @@ const routes = createBrowserRouter([
       { path: "/dashboard",     element: <Dashboard /> },
       { path: "/pose-analysis",     element: <PoseAnalysis /> },
       { path: "/reaction-analysis", element: <PoseAnalysis initialExercise="reaction" /> },
+      { path: "/ask-me",        element: <AskMe /> },
       { path: "/sessions",      element: <Sessions /> },
       { path: "/progress",      element: <Progress /> },
       { path: "/exercises",     element: <Exercise /> },

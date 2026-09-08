@@ -17,6 +17,8 @@ import {
   Check,
   Loader2,
   Sparkles,
+  Bot,
+  MessageSquareHeart,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import api, { fetchDashboardSummary, fetchRecentSessions, fetchWeeklyActivity } from "../api/Api.jsx";
@@ -202,19 +204,74 @@ const Dashboard = () => {
             </p>
           </div>
 
-          <button
-            onClick={() => navigate("/pose-analysis")}
-            className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-6 py-3.5 font-bold text-white shadow-lg shadow-cyan-200/50 transition hover:-translate-y-1 hover:shadow-cyan-300"
-          >
-            <Play size={18} fill="currentColor" />
-            Start AI Analysis
-            <ArrowUpRight
-              size={18}
-              className="transition group-hover:translate-x-1 group-hover:-translate-y-1"
-            />
-          </button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              onClick={() => navigate("/ask-me")}
+              className="group flex items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-5 py-3.5 font-bold text-cyan-700 shadow-sm transition hover:bg-cyan-50 hover:border-cyan-400"
+            >
+              <Bot size={18} className="text-cyan-600 animate-pulse" />
+              Ask AI Coach
+              <span className="rounded-full bg-cyan-600 px-1.5 py-0.5 text-[9px] font-black uppercase text-white">
+                New
+              </span>
+            </button>
+
+            <button
+              onClick={() => navigate("/pose-analysis")}
+              className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-6 py-3.5 font-bold text-white shadow-lg shadow-cyan-200/50 transition hover:-translate-y-1 hover:shadow-cyan-300"
+            >
+              <Play size={18} fill="currentColor" />
+              Start AI Analysis
+              <ArrowUpRight
+                size={18}
+                className="transition group-hover:translate-x-1 group-hover:-translate-y-1"
+              />
+            </button>
+          </div>
         </div>
 
+        {/* ================= ASK ME AI LIFESTYLE COACH HERO BANNER ================= */}
+        <div className="mb-10 relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-6 md:p-8 text-white shadow-xl border border-cyan-500/20">
+          <div className="absolute -right-10 -top-10 h-64 w-64 rounded-full bg-cyan-500/20 blur-3xl pointer-events-none" />
+          <div className="absolute right-40 -bottom-10 h-52 w-52 rounded-full bg-blue-500/20 blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 border border-cyan-400/30 px-3 py-1 text-xs font-bold text-cyan-300 mb-3">
+                <Bot size={14} className="text-cyan-400 animate-pulse" />
+                NEW FEATURE · ASK AI HEALTH & LIFESTYLE COACH
+              </div>
+              <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
+                Sitting for long hours or feeling back & neck strain?
+              </h2>
+              <p className="mt-2 text-sm md:text-base text-slate-300 leading-relaxed font-normal">
+                Talk to our clinical AI advisor via voice or text. Get tailor-made exercises designed for your workday habits to proactively prevent Text Neck, Anterior Pelvic Tilt, L5-S1 lumbar disc stress, and sciatica.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-lg bg-white/10 px-2.5 py-1 text-xs text-slate-200 border border-white/10">
+                  🎙️ Voice & Text Chat
+                </span>
+                <span className="rounded-lg bg-white/10 px-2.5 py-1 text-xs text-slate-200 border border-white/10">
+                  ⚡ 1-Click Launch Camera Workout
+                </span>
+                <span className="rounded-lg bg-white/10 px-2.5 py-1 text-xs text-slate-200 border border-white/10">
+                  🛡️ Preventive Ergonomics
+                </span>
+              </div>
+            </div>
+
+            <div className="w-full lg:w-auto shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                onClick={() => navigate("/ask-me")}
+                className="flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-4 font-black text-slate-950 shadow-lg shadow-cyan-500/25 hover:shadow-cyan-400/40 hover:scale-[1.02] active:scale-95 transition-all text-sm uppercase tracking-wide"
+              >
+                <MessageSquareHeart size={18} className="text-slate-950" />
+                <span>Talk to AI Coach</span>
+                <ArrowUpRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* ================= STATS ================= */}
         {loading ? (
