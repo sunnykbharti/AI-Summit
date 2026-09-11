@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import urllib.request
 import urllib.parse
@@ -280,19 +281,153 @@ LIFESTYLE_RULES = [
 ]
 
 
+OUT_OF_SCOPE_REPLY = (
+    "माफ़ कीजिए, यह सवाल PoseCare के मुख्य विषय (व्यायाम, पोस्चर, योग व शारीरिक स्वास्थ्य) से संबंधित नहीं है। "
+    "मैं केवल फिटनेस, व्यायाम, पोस्चर, गतिशीलता और स्वास्थ्य संबंधी विषयों पर ही आपकी मदद कर सकता हूँ।"
+)
+OUT_OF_SCOPE_VOICE = "माफ़ कीजिए, यह सवाल व्यायाम और स्वास्थ्य के विषय से बाहर है।"
+OUT_OF_SCOPE_QUICK_REPLIES = [
+    "दिनभर की सुस्ती व थकान कैसे दूर करें?",
+    "मानसिक तनाव व सिरदर्द के लिए कौन सा व्यायाम सही है?",
+    "डेस्क पर बैठते समय सही पोस्चर क्या होना चाहिए?",
+    "सूर्य नमस्कार के 12 आसन कैसे करें?"
+]
+
+# Themes and keywords that are ALWAYS in-scope (fitness, health, body, exercise, yoga, pain, sleep, stress)
+FITNESS_THEME_KEYWORDS = [
+    "exercise", "एक्सरसाइज", "व्यायाम", "कसरत", "workout", "वर्काउट", "pose", "आसन",
+    "yoga", "योग", "stretch", "स्ट्रेच", "stretching", "posture", "पोस्चर", "ergonomic",
+    "pain", "दर्द", "neck", "गर्दन", "back", "कमर", "पीठ", "knee", "घुटना", "shoulder", "कंधा", "कंधे",
+    "health", "स्वास्थ्य", "fitness", "फिटनेस", "sleep", "नींद", "सोता", "सोने", "थकान", "fatigue",
+    "तनाव", "stress", "depression", "आलस", "lethargy", "weight", "वजन", "diet", "डाइट",
+    "muscle", "मांसपेशी", "body", "शरीर", "spine", "रीढ़", "walk", "वॉक", "टहल", "run", "दौड़",
+    "cardio", "stamina", "फ्लेक्सिबिलिटी", "flexibility", "स्क्वैट", "squat", "pushup", "पुश",
+    "bench press", "deadlift", "bicep", "tricep", "dumbbell", "डम्बल", "surya", "सूर्य", "namaskar",
+    "प्राणायाम", "pranayama", "सांस", "breathing", "आंख", "eye", "screen", "स्क्रीन", "लचीलापन", "फिट"
+]
+
+# Truly off-topic patterns (general trivia, politics, recipes, coding, movies)
+OUT_OF_SCOPE_PATTERNS = [
+    r"\b(capital\s+of|weather|temperature|stock|stocks|crypto|bitcoin|election|politics|bjp|congress)\b",
+    r"\b(prime\s+minister|president|actor|actress|movie|movies|cinema|film|films|song|songs|bollywood|hollywood)\b",
+    r"\b(cricket|ipl|football|fifa|basketball|tennis|badminton|chess|hockey|baseball)\b",
+    r"\b(recipe|recipes|cook|cooking|biryani|paneer|pizza|burger|pasta|roti|chai|tea|coffee)\b",
+    r"\b(python|javascript|java|c\+\+|html|css|sql|coding|programming|algorithm|debug|software|code\s+to|write\s+a\s+program)\b",
+    r"\b(who\s+is\s+(the\s+)?(pm|president|cm|actor|actress)|who\s+won|score\s+today|match\s+today)\b",
+]
+
+# Exercises that are not tracked in the app by camera
+OFF_APP_EXERCISE_KEYWORDS = [
+    "bench press", "deadlift", "bicep", "tricep", "pull up", "chin up", "lat pulldown",
+    "dumbbell press", "barbell", "leg press", "cable", "shirshasana", "शीर्षासन", "halasana",
+    "हलासन", "sarvangasana", "सर्वांगासन", "boxing", "swimming", "तैराकी", "skipping", "रस्सी कूद",
+    "crunches", "क्रंचेस"
+]
+
+def is_strictly_out_of_scope(user_msg: str) -> bool:
+    """Fast-check for queries clearly unrelated to fitness, exercise, or bodily health."""
+    msg_low = user_msg.lower().strip()
+    if any(kw in msg_low for kw in FITNESS_THEME_KEYWORDS):
+        return False
+    for pat in OUT_OF_SCOPE_PATTERNS:
+        if re.search(pat, msg_low):
+            return True
+    return False
+
+
+# --- Dataset Ground Truth Loading & Few-Shot Grounding ---
+DATASET_ENTRIES = []
+
+def _load_dataset_entries():
+    global DATASET_ENTRIES
+    if DATASET_ENTRIES:
+        return DATASET_ENTRIES
+    dataset_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dataset.txt")
+    if not os.path.exists(dataset_file):
+        return []
+    try:
+        with open(dataset_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("input") and data.get("output"):
+                        DATASET_ENTRIES.append(data)
+                except Exception:
+                    pass
+    except Exception as e:
+        print("Failed to load dataset.txt:", e)
+    return DATASET_ENTRIES
+
+_load_dataset_entries()
+
+HINGLISH_KEYWORD_MAP = {
+    "peeth": "पीठ back spine रीढ़",
+    "pith": "पीठ back spine रीढ़",
+    "kamar": "कमर lower back lumbar रीढ़",
+    "dard": "दर्द pain",
+    "gardan": "गर्दन neck cervical",
+    "kandha": "कंधा shoulder",
+    "kandhe": "कंधे shoulders",
+    "ghutna": "घुटना knee",
+    "ghutne": "घुटने knees",
+    "aalas": "आलस lethargy fatigue",
+    "thakan": "थकान fatigue tiredness",
+    "peshab": "पेशाब bladder bowel control",
+    "seena": "सीने chest cardiac",
+    "chhati": "छाती chest cardiac",
+    "sar": "सिर head text neck",
+    "sir": "सिर head text neck",
+    "driver": "ड्राइवर driving car",
+    "laptop": "लैपटॉप laptop computer sitting"
+}
+
+def _tokenize_text(text: str):
+    """Clean tokenization that properly handles Devanagari Unicode characters."""
+    clean = re.sub(r"[^\w\s\u0900-\u097F]", " ", text)
+    return [w.strip() for w in clean.split() if len(w.strip()) > 1]
+
+def find_relevant_dataset_benchmark(user_msg: str):
+    """Finds the most relevant ground truth entry from dataset.txt based on token overlap."""
+    entries = _load_dataset_entries()
+    if not entries:
+        return None
+    raw_tokens = _tokenize_text(user_msg.lower())
+    expanded = list(raw_tokens)
+    for t in raw_tokens:
+        if t in HINGLISH_KEYWORD_MAP:
+            expanded.extend(_tokenize_text(HINGLISH_KEYWORD_MAP[t]))
+    msg_words = set(expanded)
+    
+    best_score = 0
+    best_entry = None
+    for item in entries:
+        inp_words = set(_tokenize_text(item.get("input", "").lower()))
+        overlap = len(msg_words & inp_words)
+        if overlap > best_score and overlap >= 2:
+            best_score = overlap
+            best_entry = item
+    return best_entry
+
+
+
+
 def _call_ollama_chat(prompt: str) -> str:
-    """Invokes local Ollama qwen2.5:latest model with optimized token budget for fast response."""
+    """Invokes local Ollama posecare-ai model trained on dataset.txt."""
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-    ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
+    ollama_model = os.getenv("OLLAMA_MODEL", "posecare-ai")
     
     payload = {
         "model": ollama_model,
         "prompt": prompt,
         "stream": False,
+        "keep_alive": "30m",
         "options": {
-            "temperature": 0.3,
+            "temperature": 0.2,
             "top_p": 0.85,
-            "num_predict": 140,
+            "num_predict": 220,
         }
     }
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -314,7 +449,7 @@ def _call_gemini_chat(prompt: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 150}
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 220}
     }
     data_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -334,8 +469,9 @@ def _call_gemini_chat(prompt: str) -> str:
 def chat():
     """
     Main conversational endpoint:
-    Curates response STRICTLY and ONLY from the user's voice/text query.
-    No preset bias from fill-up forms. No canned fallbacks whatsoever.
+    - In-theme fitness, yoga, posture, movement, and wellness queries are ALWAYS answered.
+    - If an exercise/pose is not in the app, it is answered with a clear not-in-app caption.
+    - Completely out-of-context queries (e.g. coding, politics, recipes, capitals) are politely declined.
     """
     try:
         verify_jwt_in_request(optional=True)
@@ -348,22 +484,87 @@ def chat():
     if not user_msg:
         return jsonify({"error": "संदेश खाली है (Empty message)"}), 400
 
-    # Build prompt curated ONLY from what the user said, informed by training benchmarks
-    llm_prompt = f"""You are PostureTrek AI's personal health, yoga, and movement coach.
+    # Deterministic fast-check for known completely off-topic questions
+    if is_strictly_out_of_scope(user_msg):
+        return jsonify({
+            "reply": OUT_OF_SCOPE_REPLY,
+            "audio_speech": OUT_OF_SCOPE_VOICE,
+            "voice_summary": OUT_OF_SCOPE_VOICE,
+            "suggested_exercises": [],
+            "beyond_app_habits": [],
+            "quick_replies": OUT_OF_SCOPE_QUICK_REPLIES,
+            "is_out_of_scope": True,
+            "not_in_app_notice": None
+        })
 
-TRAINING BENCHMARKS:
-- If desk-bound / 8-9h sitting / neck & upper-back pain -> Recommend "Desk Ergonomics" (डेस्क पोस्चर असेसमेंट) and 20-20 screen rule.
-- If student / WFH / 8h screen / eye strain & fatigue / high stress -> Recommend "Reaction & Emotion" (प्रतिक्रिया व मनोदशा AI / स्माइल व आई रिफ्रेश) and 5-min walk.
-- If early riser / active / 5h sitting / low stress -> Recommend "Surya Namaskar" (सूर्य नमस्कार 12 आसन) and outdoor brisk walk/running.
+    benchmark = find_relevant_dataset_benchmark(user_msg)
+    benchmark_guidance = ""
+    if benchmark:
+        benchmark_guidance = f"""
+TRAINING DATASET GROUND TRUTH (HIGH PRIORITY BENCHMARK):
+Case: {benchmark.get('input')}
+Expected Advice: {benchmark.get('output')}
+(Note: Incorporate this exact clinical/lifestyle guidance and safety caution into your response)
+"""
+
+    llm_prompt = f"""You are PoseCare AI's expert fitness, yoga, posture, and wellness coach.
+
+MAIN DOMAIN & THEME:
+Physical fitness, exercises, yoga poses/asanas, body posture, ergonomics, daily movement habits, relief from pain/stiffness, stress relief movement, sleep/fatigue wellness, and healthy routines.
+
+CURRENT IN-APP CAMERA TRACKING EXERCISES:
+- Desk & Study Posture Guard (डेस्क व स्टडी पोस्चर)
+- Facial Reaction & Emotion Analysis (फेशियल रिएक्शन व इमोशन AI)
+- Squats (स्क्वैट्स), Push-ups (पुश-अप्स)
+- Surya Namaskar (सूर्य नमस्कार 12 आसन), Plank Hold (प्लैंक), Lunges (लंजेस)
+- Tree Pose / Vrikshasana (वृक्षासन), Warrior II (वीरभद्रासन II), Triangle Pose / Trikonasana (त्रिकोणासन)
+- Cobra Pose / Bhujangasana (भुजंगासन), Downward Dog (अधोमुख श्वानासन), Glute Bridge, Cat Cow
+- 20-20-20 screen rule, 5-min hourly walk, 15-20 min brisk walking/running, desk chin-tucks
+
+GUIDELINES FOR ANSWERING:
+1. TECHNICAL & ANATOMICAL TERMS IN ENGLISH (CRITICAL):
+   - ALWAYS write body parts, posture terms, and exercise names in standard English (or Roman script) within Hindi sentences.
+   - Examples: Spine, Lower Back, Upper Back, Neck, Core, Shoulders, Cervical, Posture, Ergonomics.
+   - Exercise names MUST be in English: Cat-Cow Stretch, Glute Bridges, Chin Tucks, Cobra Pose, Plank Hold, Bird-Dog, Wall Angels, Squats.
+   - ABSOLUTE PROHIBITION: NEVER translate exercise names into weird, absurd, or literal Hindi (NEVER write 'जानवर की तरह चलना', 'बिल्ली-गाय', or fake Hindi words).
+   - Write natural, modern conversational Hindi that real people speak.
+
+2. ALL EXERCISES, POSES, WORKOUTS, SLEEP/STRESS WELLNESS (IN-THEME):
+   - ALWAYS answer helpfully with 2-3 practical, concise bullet points in natural Hindi/Hinglish (under 70 words total).
+   - If the user asks about an exercise or pose that is NOT currently in the PoseCare camera tracking list above (e.g. bench press, deadlift, bicep curls, pull-ups, crunches, oversleeping/laziness routine, specific advanced yoga, etc.):
+     YOU MUST STILL ANSWER THE QUESTION FULLY AND HELP THE USER!
+     And specify on a line:
+     NOT_IN_APP_CAPTION: यह फ़ीचर/व्यायाम वर्तमान में PoseCare AI कैमरा ट्रैकिंग में उपलब्ध नहीं है।
+   - If the exercise IS already in PoseCare's camera tracking:
+     NOT_IN_APP_CAPTION: None
+
+3. COMPLETELY OUT OF CONTEXT (NOT RELATED TO FITNESS, EXERCISE, POSTURE, OR HEALTH):
+   - If the question has NOTHING to do with exercise, fitness, body posture, yoga, or physical health (e.g. capital of France, politics, Bollywood movies, coding/programming, cricket match scores, recipes/cooking like biryani, stock market, weather trivia):
+     REFRAIN FROM ANSWERING.
+     Output:
+     STATUS: OUT_OF_SCOPE
+     REPLY: माफ़ कीजिए, यह सवाल PoseCare के मुख्य विषय (व्यायाम, पोस्चर, योग व स्वास्थ्य) से संबंधित नहीं है। मैं केवल फिटनेस, व्यायाम, पोस्चर और शारीरिक स्वास्थ्य से जुड़े विषयों पर ही आपकी मदद कर सकता हूँ।
+     VOICE_SUMMARY: माफ़ कीजिए, यह सवाल व्यायाम और स्वास्थ्य के विषय से बाहर है।
+
+FEW-SHOT STYLE EXAMPLE (MANDATORY STYLE):
+User: "peeth dard"
+Output:
+STATUS: IN_SCOPE
+NOT_IN_APP_CAPTION: None
+REPLY: - कसरत: Spine को स्ट्रेच करने के लिए Cat-Cow Stretch (10 बार) और Lower Back की मजबूती के लिए Glute Bridges (12 बार के 3 सेट) करें।
+- उपाय: चेयर पर बैठते समय Spine को न्यूट्रल रखें और Lumbar Support का उपयोग करें; हर 45 मिनट में 2 मिनट की वॉक लें।
+- सावधानियां: अचानक भारी वजन न उठाएं और Spine को झटका देकर न मोड़ें।
+VOICE_SUMMARY: Spine और Lower Back के लिए Cat-Cow और Glute Bridges सबसे बेहतर हैं।
+{benchmark_guidance}
+RESPONSE FORMAT FOR IN-THEME QUESTIONS:
+STATUS: IN_SCOPE
+NOT_IN_APP_CAPTION: <None, OR "यह फ़ीचर/व्यायाम वर्तमान में PoseCare AI कैमरा ट्रैकिंग में उपलब्ध नहीं है।">
+REPLY: <2-3 practical, concise bullet points in natural Hindi, ALWAYS keeping anatomical/exercise terms in English like Spine, Lower Back, Neck, Core, under 70 words total>
+VOICE_SUMMARY: <one short friendly spoken sentence in Hindi under 15 words>
 
 USER INPUT:
 "{user_msg}"
-
-INSTRUCTIONS:
-1. Base your answer STRICTLY on what the user asked above, guided by the training benchmarks.
-2. Give 2-3 concise, practical bullet points in Hindi (under 70 words total).
-3. On the last line write:
-VOICE_SUMMARY: <one short friendly spoken line in Hindi under 15 words>"""
+"""
 
     ai_reply = ""
     try:
@@ -377,20 +578,72 @@ VOICE_SUMMARY: <one short friendly spoken line in Hindi under 15 words>"""
         except Exception as e:
             print("Gemini call failed:", e)
 
-    # NO FALLBACKS WHATSOEVER: if AI model fails, return explicit error to user
+    # NO FALLBACKS: if AI model fails, return explicit error
     if not ai_reply:
         return jsonify({
             "error": "माफ कीजिए, AI अभी प्रोसेस नहीं कर पा रहा है। कृपया पुनः प्रयास करें।",
             "reply": "माफ कीजिए, AI अभी आपके संदेश को प्रोसेस नहीं कर पा रहा है। कृपया पुनः प्रयास करें।",
             "voice_summary": "माफ कीजिए, AI अभी प्रोसेस नहीं कर पा रहा है। कृपया पुनः प्रयास करें।",
             "suggested_exercises": [],
-            "beyond_app_habits": []
+            "beyond_app_habits": [],
+            "not_in_app_notice": None
         }), 503
 
-    # Extract clean response text and the LLM's own generated voice summary
-    voice_summary = ""
+    is_fitness_query = any(kw in user_msg.lower() for kw in FITNESS_THEME_KEYWORDS)
+
+    # Check if the AI model determined the question is OUT_OF_SCOPE (only if not an explicit fitness query)
+    is_out_of_scope = False
+    if not is_fitness_query:
+        is_out_of_scope = (
+            "STATUS: OUT_OF_SCOPE" in ai_reply or
+            "OUT_OF_SCOPE" in ai_reply or
+            "दायरे से बाहर" in ai_reply or
+            "विषय से बाहर" in ai_reply
+        )
+
+    if is_out_of_scope:
+        return jsonify({
+            "reply": OUT_OF_SCOPE_REPLY,
+            "audio_speech": OUT_OF_SCOPE_VOICE,
+            "voice_summary": OUT_OF_SCOPE_VOICE,
+            "suggested_exercises": [],
+            "beyond_app_habits": [],
+            "quick_replies": OUT_OF_SCOPE_QUICK_REPLIES,
+            "is_out_of_scope": True,
+            "not_in_app_notice": None
+        })
+
+    # Extract not-in-app caption if present
+    not_in_app_notice = None
     clean_reply = ai_reply
 
+    if "NOT_IN_APP_CAPTION:" in clean_reply:
+        parts = clean_reply.split("NOT_IN_APP_CAPTION:")
+        after = parts[1].strip()
+        caption_text = after.split("\n")[0].strip()
+        if caption_text and "none" not in caption_text.lower():
+            not_in_app_notice = "यह फ़ीचर / व्यायाम वर्तमान में PoseCare AI कैमरा ट्रैकिंग में उपलब्ध नहीं है।"
+        # Strip the caption line from reply
+        remaining_lines = after.split("\n")[1:]
+        clean_reply = parts[0] + "\n" + "\n".join(remaining_lines)
+
+    if any(k in user_msg.lower() for k in OFF_APP_EXERCISE_KEYWORDS):
+        not_in_app_notice = "यह फ़ीचर / व्यायाम वर्तमान में PoseCare AI कैमरा ट्रैकिंग में उपलब्ध नहीं है।"
+
+    # Clean up status and caption markers robustly
+    clean_reply = re.sub(r'(?i)not_in_app[_.]?caption:\s*none', '', clean_reply, flags=re.IGNORECASE).strip()
+    clean_reply = re.sub(r'(?i)not_in_app[_.]?caption:', '', clean_reply, flags=re.IGNORECASE).strip()
+    for s_marker in ["STATUS: IN_SCOPE", "STATUS: OUT_OF_SCOPE", "STATUS:"]:
+        clean_reply = clean_reply.replace(s_marker, "").strip()
+    clean_reply = re.sub(r'(?i)^\s*reply:\s*', '', clean_reply).strip()
+    clean_reply = re.sub(r'(?i)\n\s*reply:\s*', '\n', clean_reply).strip()
+
+    # Prepend the note to the reply text if applicable
+    if not_in_app_notice and "कैमरा ट्रैकिंग में उपलब्ध नहीं" not in clean_reply:
+        clean_reply = f"> 💡 **नोट:** {not_in_app_notice}\n\n{clean_reply}"
+
+    # Extract voice summary
+    voice_summary = ""
     for marker in ["VOICE_SUMMARY:", "VOICE_LINE:", "VOICE:", "VOICE_SUMMARY", "VOICE_LINE"]:
         if marker in clean_reply:
             parts = clean_reply.split(marker)
@@ -401,7 +654,7 @@ VOICE_SUMMARY: <one short friendly spoken line in Hindi under 15 words>"""
             break
 
     if not voice_summary:
-        lines = [l.strip() for l in clean_reply.split("\n") if l.strip() and not l.strip().startswith("#")]
+        lines = [l.strip() for l in clean_reply.split("\n") if l.strip() and not l.strip().startswith("#") and not l.strip().startswith(">")]
         if lines:
             voice_summary = lines[0].replace("*", "").replace("•", "").strip()[:140]
 
@@ -427,6 +680,12 @@ VOICE_SUMMARY: <one short friendly spoken line in Hindi under 15 words>"""
         matched_exercises.append(SYSTEM_EXERCISES["lunges"])
     if any(k in text_corpus for k in ["downward", "अधोमुख", "hamstring"]):
         matched_exercises.append(SYSTEM_EXERCISES["downward_dog"])
+    if any(k in text_corpus for k in ["pushup", "push up", "पुश", "chest", "छाती"]):
+        matched_exercises.append(SYSTEM_EXERCISES["pushup"])
+    if any(k in text_corpus for k in ["warrior", "वीरभद्र"]):
+        matched_exercises.append(SYSTEM_EXERCISES["warrior_two"])
+    if any(k in text_corpus for k in ["triangle", "त्रिकोण"]):
+        matched_exercises.append(SYSTEM_EXERCISES["triangle"])
 
     # Dynamically attach beyond-app habits that match the conversation
     matched_habits = []
@@ -445,6 +704,8 @@ VOICE_SUMMARY: <one short friendly spoken line in Hindi under 15 words>"""
         "voice_summary": voice_summary,
         "suggested_exercises": matched_exercises[:4],
         "beyond_app_habits": matched_habits,
+        "is_out_of_scope": False,
+        "not_in_app_notice": not_in_app_notice,
         "quick_replies": [
             "और विस्तार से बताएं",
             "इसके साथ क्या सावधानियां रखनी चाहिए?",

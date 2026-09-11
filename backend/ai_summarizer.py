@@ -16,7 +16,7 @@ class AISummarizer:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "posecare-ai")
         
         self.cached_insight = {}          # keyed by exercise_type
         self.cached_accuracy = {}         # last accuracy when cache was written
@@ -649,6 +649,7 @@ class AISummarizer:
             "prompt": prompt,
             "stream": False,
             "format": "json",
+            "keep_alive": "30m",
             "options": {
                 "num_predict": 120,
                 "temperature": 0.2
@@ -657,7 +658,7 @@ class AISummarizer:
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.ollama_url, data=data_bytes, headers={"Content-Type": "application/json"})
 
-        with urllib.request.urlopen(req, timeout=8) as response:
+        with urllib.request.urlopen(req, timeout=20) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 text_out = res_data.get("response", "").strip()
@@ -705,16 +706,17 @@ class AISummarizer:
             "prompt": prompt,
             "stream": False,
             "format": "json",
+            "keep_alive": "30m",
             "options": {
-                "num_predict": 120,
-                "num_ctx": 1024,
+                "num_predict": 250,
+                "num_ctx": 2048,
                 "temperature": 0.2
             }
         }
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.ollama_url, data=data_bytes, headers={"Content-Type": "application/json"})
 
-        with urllib.request.urlopen(req, timeout=12) as response:
+        with urllib.request.urlopen(req, timeout=45) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 text_out = res_data.get("response", "").strip()

@@ -304,6 +304,8 @@ const AskMe = () => {
         beyond_app_habits: res.data.beyond_app_habits || [],
         preventive_tips: res.data.preventive_tips || [],
         quick_replies: res.data.quick_replies || [],
+        is_out_of_scope: res.data.is_out_of_scope || false,
+        not_in_app_notice: res.data.not_in_app_notice || null,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -490,13 +492,25 @@ const AskMe = () => {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3 mb-2">
-                    <span
-                      className={`text-[10px] font-black uppercase tracking-wider ${
-                        isAi ? "text-cyan-700" : "text-cyan-100"
-                      }`}
-                    >
-                      {isAi ? "PoseCare AI हेल्थ एडवाइजर" : "आप (You)"}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-black uppercase tracking-wider ${
+                          isAi ? "text-cyan-700" : "text-cyan-100"
+                        }`}
+                      >
+                        {isAi ? "PoseCare AI हेल्थ एडवाइजर" : "आप (You)"}
+                      </span>
+                      {isAi && msg.is_out_of_scope && (
+                        <span className="rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-800 animate-pulse">
+                          विषय से बाहर (Out of Scope)
+                        </span>
+                      )}
+                      {isAi && msg.not_in_app_notice && !msg.is_out_of_scope && (
+                        <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800">
+                          कैमरा ट्रैकिंग में उपलब्ध नहीं (Not in-app)
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <span
                         className={`text-[10px] font-medium ${
@@ -510,13 +524,19 @@ const AskMe = () => {
 
                   {/* Concise Audio Speech Pill: speaks only 1-2 friendly lines */}
                   {isAi && voiceLine && (
-                    <div className="flex items-center gap-2.5 rounded-2xl bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-200/80 px-3 py-2 text-xs text-cyan-950 mb-3 shadow-2xs">
+                    <div className={`flex items-center gap-2.5 rounded-2xl border px-3 py-2 text-xs mb-3 shadow-2xs ${
+                      msg.is_out_of_scope
+                        ? "bg-amber-50/80 border-amber-200 text-amber-950"
+                        : "bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200/80 text-cyan-950"
+                    }`}>
                       <button
                         type="button"
                         onClick={() => speakVoiceLine(voiceLine, msg.id)}
                         className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-black shadow-2xs transition active:scale-95 cursor-pointer shrink-0 ${
                           speakingId === msg.id
                             ? "bg-rose-500 text-white animate-pulse"
+                            : msg.is_out_of_scope
+                            ? "bg-amber-600 hover:bg-amber-500 text-white"
                             : "bg-cyan-600 hover:bg-cyan-500 text-white"
                         }`}
                         title={speakingId === msg.id ? "ऑडियो रोकें" : "सुनें (Listen Voice)"}
@@ -540,9 +560,9 @@ const AskMe = () => {
 
                       {speakingId === msg.id && (
                         <div className="flex items-center gap-0.5 ml-auto shrink-0">
-                          <span className="h-3 w-1 bg-cyan-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                          <span className="h-4 w-1 bg-cyan-600 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                          <span className="h-2 w-1 bg-cyan-600 rounded-full animate-bounce" />
+                          <span className={`h-3 w-1 rounded-full animate-bounce [animation-delay:-0.3s] ${msg.is_out_of_scope ? "bg-amber-600" : "bg-cyan-600"}`} />
+                          <span className={`h-4 w-1 rounded-full animate-bounce [animation-delay:-0.15s] ${msg.is_out_of_scope ? "bg-amber-600" : "bg-cyan-600"}`} />
+                          <span className={`h-2 w-1 rounded-full animate-bounce ${msg.is_out_of_scope ? "bg-amber-600" : "bg-cyan-600"}`} />
                         </div>
                       )}
                     </div>
@@ -553,21 +573,35 @@ const AskMe = () => {
                     {msg.text}
                   </div>
 
-                  {/* Interactive Consultation Chips (for asking/clarifying lifestyle) */}
-                  {msg.consultation_chips && msg.consultation_chips.length > 0 && (
+                  {/* Interactive Consultation / Quick Reply Chips */}
+                  {((msg.consultation_chips && msg.consultation_chips.length > 0) ||
+                    (msg.quick_replies && msg.quick_replies.length > 0)) && (
                     <div className="mt-3.5 pt-3 border-t border-slate-100">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5 mb-2">
-                        <Sliders size={13} className="text-cyan-600" />
-                        <span>अपनी दिनचर्या चुनें (Tap to Answer):</span>
+                        {msg.is_out_of_scope ? (
+                          <>
+                            <Sparkles size={13} className="text-amber-600" />
+                            <span>PoseCare ऐप के मान्य विषय (Tap to Ask):</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sliders size={13} className="text-cyan-600" />
+                            <span>अपनी दिनचर्या चुनें या पूछें (Tap to Answer):</span>
+                          </>
+                        )}
                       </span>
                       <div className="flex flex-wrap gap-2">
-                        {msg.consultation_chips.map((chip, cIdx) => (
+                        {(msg.consultation_chips || msg.quick_replies).map((chip, cIdx) => (
                           <button
                             key={cIdx}
                             type="button"
                             onClick={() => handleSendMessage(chip)}
                             disabled={loading}
-                            className="rounded-full bg-cyan-50/90 hover:bg-cyan-100 border border-cyan-200 text-cyan-900 px-3 py-1.5 text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
+                            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer ${
+                              msg.is_out_of_scope
+                                ? "bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900"
+                                : "bg-cyan-50/90 hover:bg-cyan-100 border border-cyan-200 text-cyan-900"
+                            }`}
                           >
                             {chip}
                           </button>
